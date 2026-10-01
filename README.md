@@ -2,6 +2,8 @@
 
 A two-player cooperative adventure through 16 painted landscapes inspired by Japan. Two complementary lanterns restore the missing light of a mountain village.
 
+**Play:** [lantern-relay-ten.vercel.app](https://lantern-relay-ten.vercel.app/)
+
 ## Play
 
 One traveler creates a journey and chooses Story, Adventure, or Expert. Send the invitation link to a companion on another device. Both travelers are required to restore crossings and travel onward.
