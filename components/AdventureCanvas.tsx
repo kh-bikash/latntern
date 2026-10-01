@@ -45,7 +45,7 @@ export default function AdventureCanvas({room,sound,paused,reducedMotion,onActio
   const worldPointer=(event:MouseEvent):Point=>{const rect=canvas.getBoundingClientRect();return {x:camera+(event.clientX-rect.left)/zoom,y:(event.clientY-rect.top)/zoom};};
   const hover=(event:MouseEvent)=>{pointer=worldPointer(event);};
   const unhover=()=>{pointer=null;canvas.style.cursor="default";};
-  const pointWalk=(event:MouseEvent)=>{if(current.current.paused)return;canvas.focus();const point=worldPointer(event),target=targetAt(visibleTargets,point);selected=target?targetKey(target):null;destination=Math.max(30,Math.min(WIDTH-40,target?.x??point.x));if(target&&canReach(self,target)){destination=null;selected=null;emit(target);}};
+  const pointWalk=(event:MouseEvent)=>{if(current.current.paused)return;canvas.focus();const point=worldPointer(event),target=targetAt(visibleTargets,point);selected=target?targetKey(target):null;destination=Math.max(30,Math.min(WIDTH-40,target?.x??point.x));if(target&&canReach(self,target)){destination=null;if(!target.hold)selected=null;emit(target);}};
   const clear=()=>{keys.clear();input.current={left:false,right:false,jump:false,hold:false,sprint:false};};
   canvas.addEventListener("click",pointWalk);canvas.addEventListener("mousemove",hover);canvas.addEventListener("mouseleave",unhover);window.addEventListener("keydown",down);window.addEventListener("keyup",up);window.addEventListener("blur",clear);
   const glow=(x:number,y:number,r:number,color:string,alpha=.45)=>{const gradient=ctx.createRadialGradient(x,y,0,x,y,r);gradient.addColorStop(0,color);gradient.addColorStop(1,"transparent");ctx.save();ctx.globalAlpha=alpha;ctx.fillStyle=gradient;ctx.fillRect(x-r,y-r,r*2,r*2);ctx.restore();};
@@ -114,7 +114,7 @@ export default function AdventureCanvas({room,sound,paused,reducedMotion,onActio
    const chosen=targets.find(t=>targetKey(t)===selected),hovered=pointer?targetAt(targets,pointer):undefined;
    canvas.style.cursor=hovered?"pointer":"crosshair";
    if(selected&&!chosen)selected=null;
-   if(live&&chosen&&canReach(self,chosen)){destination=null;selected=null;emit(chosen);}
+   if(live&&chosen&&canReach(self,chosen)){destination=null;if(!chosen.hold){selected=null;emit(chosen);}else if(clock-lastAction>.52)emit(chosen);}
    currentTarget=targets.filter(target=>distance(self,target)<(target.hold?130:112)).sort((a,b)=>distance(self,a)-distance(self,b))[0];
    if(live&&currentTarget?.hold&&(keys.has("e")||input.current.hold)&&clock-lastAction>.52)emit(currentTarget);
    const desired=Math.max(0,Math.min(WIDTH-viewW,self.x-viewW*.36));camera+=(desired-camera)*Math.min(1,dt*5);shake=Math.max(0,shake-dt);resetFlash=Math.max(0,resetFlash-dt);
