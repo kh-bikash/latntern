@@ -1,0 +1,26 @@
+HINODE — DAWN WING | Geography and sound credits
+
+Real-world geography, downloaded 3 October 2026.
+Photography: Geospatial Information Authority of Japan (GSI), seamlessphoto,
+including its listed constituent photography sources. Public Data License 1.0.
+https://maps.gsi.go.jp/development/ichiran.html
+https://www.gsi.go.jp/kikakuchousei/kikakuchousei40182.html
+Images edited: aerial tiles mosaicked and converted to WebP.
+Outer scenery uses GSI zoom-12 Landsat mosaics. Required attribution:
+データソース：Landsat8画像（GSI,TSIC,GEO Grid/AIST）, Landsat8画像（courtesy of the U.S. Geological Survey）, 海底地形（GEBCO）
+Outer imagery is mosaicked and converted to WebP; outer elevation is resampled.
+GSI does not endorse this game. Fictional mission markers are not real facilities.
+
+Elevation: Mapzen Terrain Tiles (AWS open data), USGS SRTM / GMTED2010.
+https://registry.opendata.aws/terrain-tiles/
+https://github.com/tilezen/joerd/blob/master/docs/attribution.md
+Edited: Terrarium elevations decoded and resampled to a 129 x 129 mesh;
+negative heights clamped to sea level. Mesh heights and aerial snapshots may
+have different capture dates and resolutions. Not for real navigation.
+Tile URL / SHA256 build receipts: /flight/terrain/sources.json
+
+Aircraft, interface, mission code and propeller synthesis: original for this game.
+Three.js Sky shader: Three.js, MIT License.
+Wind recording: existing wind-trees.mp3; source and license in /asset-credits.txt.
+Engine is responsive synthesized audio, not a real aircraft recording.
+Story, facilities and flight assignments are fictional.

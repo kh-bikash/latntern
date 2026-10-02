@@ -1,0 +1,3 @@
+import {createFlight,joinFlight,getFlight,actFlight} from '@/lib/flightServer';
+import {cleanName,cleanCode,getToken,apiError} from '@/lib/game';
+export async function POST(request:Request){try{const body=await request.json();if(body.type==='create')return Response.json(await createFlight(cleanName(body.name),body.difficulty));const code=cleanCode(body.code);if(body.type==='join')return Response.json(await joinFlight(code,cleanName(body.name)));const token=getToken(request);if(body.type==='get')return Response.json({room:await getFlight(code,token)});return Response.json({room:await actFlight(code,token,body)});}catch(e){return apiError(e);}}

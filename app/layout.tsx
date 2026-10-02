@@ -1,18 +1,15 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import "./adventure.css";
-import "./cinematic.css";
-import "./expedition.css";
-import './open-world.css';
+import './flight.css';
 
 export const metadata: Metadata = {
-  title: "Lantern Relay: The Lost Dawn",
-  description: "An illustrated cooperative adventure for two. Explore sixteen Japanese landscapes, restore the crossings, and bring the dawn home together.",
+  title: "Hinode — Dawn Wing",
+  description: "A cooperative flight adventure over six real Japanese landscapes. Two pilots, twelve missions, one signal to carry home.",
   metadataBase: new URL('https://lantern-relay-ten.vercel.app'),
   openGraph: {
-    title: 'Lantern Relay: The Lost Dawn',
-    description: 'Two lanterns. Sixteen landscapes. An adventure you can only complete together.',
-    images: [{ url: '/adventure/valley.png', width: 1536, height: 1024, alt: 'A lantern-lit mountain village beneath the moon' }],
+    title: 'Hinode — Dawn Wing',
+    description: 'Two pilots. Six real Japanese landscapes. Carry the dawn home together.',
+    images: [{ url: '/flight/terrain/fuji.webp', width: 2048, height: 2048, alt: 'Real aerial photography of Mount Fuji' }],
     type: 'website',
   },
   twitter: { card: 'summary_large_image' },
