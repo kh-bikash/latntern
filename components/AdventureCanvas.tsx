@@ -2,6 +2,7 @@
 import { useEffect,useRef,useState } from "react";
 import { FLOOR,HEIGHT,WIDTH,REALMS, SIGILS,BELL_NAMES,trialsFor,platformsFor,shardPoints,pagePoints,spawn,type CampaignRoom,type Traveler,type Point,inspectPoints } from "@/lib/adventure";
 import {residentFor} from '@/lib/quests';
+import {routeFor} from '@/lib/routes';
 import { stepBody,type Body } from "@/lib/adventurePhysics";
 import { targetAt,targetKey,canReach,type WorldTarget } from "@/lib/adventureInteraction";
 import { terrainFor,terrainPlatformVariant,type Crop } from "@/lib/terrain";
@@ -83,9 +84,10 @@ export default function AdventureCanvas({room,sound,paused,reducedMotion,onActio
    other.x+=(partnerState.x-other.x)*Math.min(1,dt*10);other.y+=(partnerState.y-other.y)*Math.min(1,dt*12);other.moving=partnerState.moving;other.facing=partnerState.facing;other.grounded=partnerState.grounded;
    const blue=room.seat===1?self:other;
    const beforeX=self.x,wasGrounded=self.grounded,fallSpeed=self.vy;
-   stepBody(self,platforms,dt,direction,jump,keys.has("shift")||input.current.sprint,trial?trial.x+265:WIDTH,true,state.upgrades.wind>0);
-   // Spirit paths are illuminated by the blue traveler; both may use them.
+   // Only nearby blue light reveals a solid spirit bridge for the warm traveler.
    const spiritNear=(p:{x:number;w:number})=>Math.abs(blue.x-p.x-p.w/2)<650;
+   const route=routeFor(room.realm),gust=Math.sin(Date.now()/1250)*route.wind*(state.difficulty==='story'?.5:1);
+   stepBody(self,platforms.filter(p=>!p.spirit||spiritNear(p)),dt,direction,jump,keys.has("shift")||input.current.sprint,trial?trial.x+265:WIDTH,true,state.upgrades.wind>0,{traction:route.traction,wind:gust});
    const surface=self.y===FLOOR?terrainStyle.surface:room.realm===1||room.realm===2||room.realm===4||room.realm===10||room.realm===14?"wood":terrainStyle.surface==="snow"?"snow":"concrete";
    stride+=Math.abs(self.x-beforeX);otherStride+=Math.abs(other.x-otherBeforeX);
    if(wasGrounded&&!self.grounded&&self.vy<0&&current.current.sound&&live)playJump();
@@ -176,11 +178,11 @@ export default function AdventureCanvas({room,sound,paused,reducedMotion,onActio
  },[room.realm,room.seat]);
  const hold=(key:"left"|"right"|"hold")=>({onPointerDown:(e:React.PointerEvent<HTMLButtonElement>)=>{e.currentTarget.setPointerCapture(e.pointerId);input.current[key]=true;if(key==="hold")interactRef.current();},onPointerUp:()=>{input.current[key]=false;},onPointerCancel:()=>{input.current[key]=false;},onClick:(e:React.MouseEvent)=>{if(e.detail===0&&key==="hold")interactRef.current();}});
  return <div className="adventure-world" ref={hostRef}>
-  <canvas ref={canvasRef} aria-label={`${REALMS[room.realm].title}. Play with arrow keys or A and D, Space to jump, E to interact.`} tabIndex={0}/>
+  <canvas ref={canvasRef} data-region={room.realm} data-assets-loaded={loading?'false':'true'} aria-label={`${REALMS[room.realm].title}. Play with arrow keys or A and D, Space to jump, E to interact.`} tabIndex={0}/>
   {sight&&<div className="world-sight">{sight}</div>}
   {loading&&<div className="world-loading"><span className="loading-light"/>Painting the path ahead…</div>}
   {assetError&&<div className="world-asset-error" role="alert">Some scenery could not load. <button onClick={()=>window.location.reload()}>Reload your saved journey</button></div>}
-  <div className="world-location"><small>CHAPTER {Math.floor(room.realm/2)+1} · {room.realm%2===0?"FIRST PATH":"SECOND PATH"}</small><h2>{REALMS[room.realm].title}</h2><p>{REALMS[room.realm].chapter} · {terrainFor(room.realm).name}</p></div>
+  <div className="world-location"><small>CHAPTER {Math.floor(room.realm/2)+1} · {room.realm%2===0?"FIRST PATH":"SECOND PATH"}</small><h2>{REALMS[room.realm].title}</h2><p>{REALMS[room.realm].chapter} · {terrainFor(room.realm).name}</p><p className="route-tip">{routeFor(room.realm).tip}</p></div>
   <div className="world-prompt" aria-live="polite">{prompt}</div>
   {storyLine&&<div className="world-story-line" role="status">{storyLine}</div>}
   <div className="world-companion"><i className={Date.now()-room.players[room.seat===0?1:0].seen<8000?"online":""}/>{room.names[room.seat===0?1:0]}{room.emotes[room.seat===0?1:0]&&<span>“{room.emotes[room.seat===0?1:0]}”</span>}</div>

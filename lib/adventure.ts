@@ -1,5 +1,6 @@
 import { WORLD_SCENES } from "./world";
 import { terrainFor } from "./terrain";
+import { routeFor } from './routes';
 
 export type TrialKind = "bond" | "mirrors" | "bells" | "embers" | "escort" | "tide" | "guardian" | "runes" | "rescue" | "balance";
 export type Difficulty = 'story'|'adventure'|'expert';
@@ -60,7 +61,7 @@ export const REALMS = WORLD_SCENES.map((scene,index)=>({ ...scene, chapter:chapt
 
 export function trialsFor(realm:number,difficulty:Difficulty='adventure'): Trial[] {
   return arrangements[realm].map((kind,i)=>{
-    const x=720+i*870;
+    const x=routeFor(realm).centers[i];
     const raised=(realm+i)%3===2;
     return {id:`r${realm}-t${i}`,x,kind,title:`${titles[kind]}${realm>1?` · ${WORLD_SCENES[realm].title}`:''}`,hint:instructions[kind], sockets:[{x:x-115,y:kind==='balance'?FLOOR-145:FLOOR},{x:x+100,y:kind==='balance'||raised?FLOOR-145:FLOOR}], targets:[(realm+i+1)%4,(realm*3+i+2)%4], melodies:[Array.from({length:3+Math.floor(realm/6)+(difficulty==='expert'?2:0)},(_,n)=>(realm+i+n*2)%3),Array.from({length:3+Math.floor(realm/6)+(difficulty==='expert'?2:0)},(_,n)=>(realm+i+n+1)%3)], embers:[[{x:x-190,y:FLOOR-60},{x:x-70,y:FLOOR-240}],[{x:x+180,y:FLOOR-60},{x:x+55,y:FLOOR-355}]]};
   });
@@ -70,7 +71,12 @@ export function platformsFor(realm:number): Platform[] {
   for(let x=0;x<WIDTH;x+=terrain.groundWidth)result.push({x,y:FLOOR,w:Math.min(terrain.groundWidth,WIDTH-x)});
   for(const trial of trialsFor(realm)) {
     const offset=terrain.shift*(trial.kind==="embers"?.5:1),lift=terrain.lift;
-    result.push({x:trial.x-225+offset,y:FLOOR-lift,w:terrain.width},{x:trial.x-110-offset*.5,y:FLOOR-lift-95,w:terrain.width+12},{x:trial.x+5+offset*.3,y:FLOOR-lift-205,w:terrain.width+20,spirit:true},{x:trial.x+140-offset,y:FLOOR-lift-20,w:terrain.width+8});
+    const pattern=routeFor(realm).pattern;
+    const approach=[[-245,-125,0,155],[-285,-150,10,190],[-260,-120,20,170],[-230,-105,25,145]][pattern];
+    result.push({x:trial.x+approach[0]+offset,y:FLOOR-lift,w:terrain.width+pattern*12},{x:trial.x+approach[1]-offset*.5,y:FLOOR-lift-95,w:terrain.width+12},{x:trial.x+approach[2]+offset*.3,y:FLOOR-lift-205,w:terrain.width+20,spirit:true},{x:trial.x+approach[3]-offset,y:FLOOR-lift-20,w:terrain.width+8});
+    if(pattern===1)result.push({x:trial.x-365,y:FLOOR-75,w:150},{x:trial.x+225,y:FLOOR-200,w:165});
+    if(pattern===2)result.push({x:trial.x-350,y:FLOOR-55,w:120},{x:trial.x-235,y:FLOOR-155,w:120},{x:trial.x+90,y:FLOOR-260,w:130,spirit:true});
+    if(pattern===3)result.push({x:trial.x-320,y:FLOOR-65,w:195},{x:trial.x+185,y:FLOOR-230,w:185,spirit:true});
     for(let side=0;side<2;side++)if(trial.sockets[side].y<FLOOR)result.push({x:trial.sockets[side].x-55,y:trial.sockets[side].y,w:110,spirit:side===1});
   }
   for(let i=0;i<6;i++)result.push({x:350+i*610+terrain.shift,y:FLOOR-105-(i%3)*75+(terrain.lift-115)*.3,w:terrain.width+30,spirit:(i+realm)%2===1});

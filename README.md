@@ -49,4 +49,4 @@ The campaign test traverses all 64 crossings and all progression systems, includ
 
 ## Architecture
 
-Next.js App Router, Canvas 2D rendering, Web Audio, server-authorized actions, Postgres persistence, optimistic version checks to prevent lost multiplayer updates, and short HTTP polling for two-player synchronization. This release does not contain a 3D renderer. Region scenery, weather, terrain palettes, puzzle arrangements, stories, and resident requests change throughout the journey.
+Next.js App Router, Canvas 2D rendering, Web Audio, server-authorized actions, Postgres persistence, optimistic version checks to prevent lost multiplayer updates, and short HTTP polling for two-player synchronization. This release does not contain a 3D renderer. Region scenery, weather, terrain palettes, puzzle arrangements, stories, and resident requests change throughout the journey. Sixteen explicit crossing layouts, regional wind and grip, and proximity-dependent spirit bridges vary traversal. See `REVIEW.md` for the design audit and verification limits.
