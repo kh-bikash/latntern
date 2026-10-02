@@ -36,7 +36,7 @@ export async function actAdventure(code:string,token:string,input:{type?:unknown
   if(s.ready[0]&&s.ready[1]){
    if(!near(s.players[other],exit,185))throw new GameError('Both travelers must be at the same trail.',409);
    s.archive[s.realm]=s.trials;const previous=s.realm;s.realm=destination;s.trials=s.archive[destination]??trialsFor(destination,s.difficulty).map(trialInitial);
-   const entry=exitsFor(destination).find(e=>e.realm===previous)!;s.players=[{...spawn(0),x:entry.x,y:entry.y},{...spawn(1),x:Math.min(WIDTH-35,entry.x+45),y:entry.y+35}];
+   const entry=exitsFor(destination).find(e=>e.realm===previous)!;s.players=[{...spawn(0),x:entry.x,y:entry.y},{...spawn(1),x:Math.min(WIDTH-35,entry.x+45),y:Math.min(HEIGHT-35,entry.y+35)}];
    if(!s.visited.includes(destination))s.visited.push(destination);s.unlocked=Math.max(s.unlocked,destination);s.ready=[false,false];s.travelTarget=null;s.checkpoints=[130,195];hint='A new region opens. Explore any trail and choose the mysteries you want to solve.';
   }
  }else if(input.type==='cancelTravel'){s.ready=[false,false];s.travelTarget=null;hint='Travel plans cleared. Choose another path together.';
