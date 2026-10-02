@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import './flight.css';
+import './world.css';
 
 export const metadata: Metadata = {
-  title: "Hinode — Dawn Wing",
-  description: "A cooperative flight adventure over six real Japanese landscapes. Two pilots, twelve missions, one signal to carry home.",
+  title: "Hinode — World Flight",
+  description: "Plan worldwide flights, taxi, take off and land together. Open global terrain and a six-region Japanese expedition.",
   metadataBase: new URL('https://lantern-relay-ten.vercel.app'),
   openGraph: {
-    title: 'Hinode — Dawn Wing',
-    description: 'Two pilots. Six real Japanese landscapes. Carry the dawn home together.',
+    title: 'Hinode — World Flight',
+    description: 'Two pilots. Open skies. Plan your route and fly from runway to runway.',
     images: [{ url: '/flight/terrain/fuji.webp', width: 2048, height: 2048, alt: 'Real aerial photography of Mount Fuji' }],
     type: 'website',
   },
@@ -26,7 +27,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased">{children}</body>
+      <head><link rel="stylesheet" href="/cesium/Widgets/widgets.css"/></head><body className="antialiased">{children}</body>
     </html>
   );
 }

@@ -14,8 +14,8 @@ GSI does not endorse this game. Fictional mission markers are not real facilitie
 Elevation: Mapzen Terrain Tiles (AWS open data), USGS SRTM / GMTED2010.
 https://registry.opendata.aws/terrain-tiles/
 https://github.com/tilezen/joerd/blob/master/docs/attribution.md
-Edited: Terrarium elevations decoded and resampled to a 129 x 129 mesh;
-negative heights clamped to sea level. Mesh heights and aerial snapshots may
+Edited: Terrarium elevations decoded and resampled to a 257 x 257 mesh;
+isolated corrupt elevation spikes removed; negative heights clamped to sea level. Mesh heights and aerial snapshots may
 have different capture dates and resolutions. Not for real navigation.
 Tile URL / SHA256 build receipts: /flight/terrain/sources.json
 
@@ -24,3 +24,32 @@ Three.js Sky shader: Three.js, MIT License.
 Wind recording: existing wind-trees.mp3; source and license in /asset-credits.txt.
 Engine is responsive synthesized audio, not a real aircraft recording.
 Story, facilities and flight assignments are fictional.
+
+WORLD FLIGHT / OPEN SCENERY (snapshot 3 October 2026)
+Airport catalog and runway dimensions: OurAirports, Public Domain.
+https://ourairports.com/data/
+72603 active records; 10953 airports have surveyed runway endpoints.
+Other strips may use explicitly estimated geometry; not operational airport charts.
+Source URL and hashes: /flight/global/sources.json
+Global streaming imagery: NASA GIBS Blue Marble Shaded Relief / Bathymetry.
+https://nasa-gibs.github.io/gibs-api-docs/
+Historical imagery, not live aerial cameras. Lower resolution outside Japan.
+Global elevation: Mapzen Terrain Tiles / USGS, source above.
+CesiumJS 1.146.0: CesiumJS Contributors, Apache License 2.0.
+https://github.com/CesiumGS/cesium
+Runtime license: /cesium/LICENSE.md; dependency notices /cesium/ThirdParty.json.
+Cesium Air aircraft GLB: CesiumGS/cesium sample data, Apache 2.0.
+https://github.com/CesiumGS/cesium/tree/main/Apps/SampleData/models/CesiumAir
+Model license: /flight/models/CESIUM-LICENSE.md
+The Cesium Air model is not a licensed aircraft-brand or aircraft-system replica.
+Cockpit geometry, instruments and game flight models are original and approximate.
+OpenStreetMap building footprints, forest and water polygons:
+© OpenStreetMap contributors, Open Database License (ODbL) 1.0.
+https://www.openstreetmap.org/copyright
+The adapted geographic datasets are freely available under ODbL at
+/flight/scenery/fuji.json, hakone.json, miyajima.json, kyoto.json, aso.json,
+and daisetsu.json. Each file includes its query, source, license and source hash.
+Mapped footprint extrusion heights are estimated when absent in source data.
+Tree positions and appearance are procedural, inside mapped forest areas.
+Three.js Water shader: Three.js Contributors, MIT License.
+No Google Maps, Bing, Cesium ion token, paid scenery API or live aircraft feed.

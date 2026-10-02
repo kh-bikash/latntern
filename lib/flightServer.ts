@@ -25,7 +25,7 @@ export async function actFlight(code:string,token:string,input:{type:string;valu
    const v=input.value as Aircraft;if(!v||!['x','y','z','yaw','pitch','roll','speed','throttle'].every(k=>Number.isFinite(v[k as keyof Aircraft])))throw new GameError('Invalid aircraft position.');
    const elapsed=clamp((now-p.seen)/1000,.05,2),max=elapsed*150+25,delta=Math.hypot(v.x-p.x,v.z-p.z),ratio=Math.min(1,max/Math.max(1,delta));
    const x=clamp(p.x+(v.x-p.x)*ratio,250,t.size-250),z=clamp(p.z+(v.z-p.z)*ratio,250,t.size-250),y=clamp(v.y,p.y-elapsed*75-25,p.y+elapsed*75+25);
-   s.planes[seat]={...p,x,y:clamp(y,0,9000),z,yaw:v.yaw,pitch:clamp(v.pitch,-.6,.6),roll:clamp(v.roll,-1.1,1.1),speed:clamp(v.speed,0,125),throttle:clamp(v.throttle,0,1),vertical:clamp(Number(v.vertical)||0,-100,100),seen:now};
+   s.planes[seat]={...p,x,y:clamp(y,0,9000),z,yaw:v.yaw,pitch:clamp(v.pitch,-.6,.6),roll:clamp(v.roll,-1.1,1.1),speed:clamp(v.speed,0,125),throttle:clamp(v.throttle,0,1),flaps:clamp(Number(v.flaps)||0,0,1),vertical:clamp(Number(v.vertical)||0,-100,100),seen:now};
   }else if(input.type==='recover'){
    s.crashes[seat]++;s.planes[seat]=flightSpawn(seat,t,p.recovery+1);hint='Aircraft recovered. Shared mission progress is saved.';
   }else if(input.type==='continue'){

@@ -1,2 +1,2 @@
-import FlightApp from '@/components/FlightApp';
-export default function Page(){return <FlightApp/>;}
+import GameEntry from '@/components/GameEntry';
+export default function Page(){return <GameEntry/>;}

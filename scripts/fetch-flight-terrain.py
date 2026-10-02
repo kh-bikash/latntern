@@ -31,14 +31,20 @@ for idx,(id,name,lat,lon) in enumerate(PLACES):
   for job,data in pool.map(download,jobs):
    kind,i,j,url=job;im=Image.open(io.BytesIO(data)).convert('RGB');(photo if kind=='photo' else dem).paste(im,(i*256,j*256));receipts.append({'region':id,'url':url,'sha256':hashlib.sha256(data).hexdigest()})
  heights=[];pixels=dem.load()
- for j in range(129):
-  for i in range(129):
-   px,py=i/128*511,j/128*511;a,b=int(px),int(py);u,v=px-a,py-b
+ for j in range(257):
+  for i in range(257):
+   px,py=i/256*511,j/256*511;a,b=int(px),int(py);u,v=px-a,py-b
    def h(x,y):r,g,b=pixels[min(511,x),min(511,y)];return r*256+g+b/256-32768
    heights.append(round(max(0,h(a,b)*(1-u)*(1-v)+h(a+1,b)*u*(1-v)+h(a,b+1)*(1-u)*v+h(a+1,b+1)*u*v),1))
+ # Remove isolated corrupt DEM spikes; retain broad natural peaks.
+ original=list(heights)
+ for row in range(1,256):
+  for col in range(1,256):
+   near=sorted(original[(row+y)*257+col+x] for y in [-1,0,1] for x in [-1,0,1] if x or y)
+   if original[row*257+col]>near[4]+400: heights[row*257+col]=near[4]
  north,south=lat_at(sy,12),lat_at(sy+2,12);west,east=sx/4096*360-180,(sx+2)/4096*360-180
  width=40075016.6856/4096*2*math.cos(math.radians((north+south)/2))
- metadata={'id':id,'name':name,'lat':lat,'lon':lon,'north':north,'south':south,'west':west,'east':east,'size':round(width,2),'grid':129,'heights':heights,'photoSource':'GSI seamlessphoto mosaic, edited into a WebP texture','terrainSource':'Mapzen Terrain Tiles / USGS SRTM, resampled to a 129 by 129 height mesh'}
+ metadata={'id':id,'name':name,'lat':lat,'lon':lon,'north':north,'south':south,'west':west,'east':east,'size':round(width,2),'grid':257,'heights':heights,'photoSource':'GSI seamlessphoto mosaic, edited into a WebP texture','terrainSource':'Mapzen Terrain Tiles / USGS SRTM, resampled to a 257 by 257 height mesh'}
  (OUT/f'{id}.json').write_text(json.dumps(metadata,separators=(',',':')),encoding='utf-8');photo.save(OUT/f'{id}.webp',quality=88,method=6)
  print(id,'metres',round(width),'height range',min(heights),max(heights),flush=True)
  # A real, lower-detail outer landscape prevents the central scenery from

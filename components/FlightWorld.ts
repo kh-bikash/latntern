@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import {Sky} from 'three/examples/jsm/objects/Sky.js';
-import {FLIGHT_REGIONS,MISSIONS,missionPoints,type TerrainData,type Aircraft} from '@/lib/flight';
+import {Water} from 'three/examples/jsm/objects/Water.js';
+import {buildGeographicScenery,geographicShape,polygonArea,type SceneryData} from './FlightScenery';
+import {FLIGHT_REGIONS,MISSIONS,missionPoints,terrainHeight,type TerrainData,type Aircraft} from '@/lib/flight';
 
 // Original, assembled aircraft: curved fuselage, airfoils, float struts and moving surfaces.
 export function buildAircraft(color:string){
@@ -16,30 +18,41 @@ export function buildAircraft(color:string){
  const lights=new THREE.Group();for(const side of [-1,1]){const nav=new THREE.Mesh(new THREE.SphereGeometry(.18,10,8),new THREE.MeshBasicMaterial({color:side<0?'#ff4646':'#91ffcc'}));nav.position.set(side*12.9,1.2,.1);lights.add(nav);}plane.add(lights);
  // Wingtops carry stripes and a dark roundel for readable identity.
  for(const side of [-1,1]){box('wing stripe',paint,[.7,.035,2.8],[side*8,1.38,.1]);const mark=new THREE.Mesh(new THREE.CircleGeometry(.64,28),paint);mark.rotation.x=-Math.PI/2;mark.position.set(side*10,1.4,.1);plane.add(mark);}
- return {plane,prop};
+ const ailerons=new THREE.Group();for(const side of [-1,1]){const pivot=new THREE.Group();pivot.position.set(side*7.4,1.12,1.1);const surface=new THREE.Mesh(new THREE.BoxGeometry(5,.08,.65),paint);surface.position.z=.25;pivot.add(surface);pivot.name=side<0?'left aileron':'right aileron';ailerons.add(pivot);}plane.add(ailerons);
+ const elevator=new THREE.Group();elevator.position.set(0,.65,5.8);const e=new THREE.Mesh(new THREE.BoxGeometry(8,.07,.5),paint);e.position.z=.2;elevator.add(e);plane.add(elevator);
+ plane.traverse(o=>{if(o instanceof THREE.Mesh){o.castShadow=true;o.receiveShadow=true;}});
+ return {plane,prop,ailerons,elevator,animate:(p:Aircraft,time:number)=>{prop.rotation.z=time*(30+p.throttle*100);ailerons.children.forEach((g,i)=>{g.rotation.x=p.roll*(i?-.25:.25);});elevator.rotation.x=-p.pitch*.5;}};
 }
 export function terrainGeometry(t:TerrainData){const geo=new THREE.BufferGeometry(),positions=[],uv=[],indices=[],n=t.grid-1;for(let j=0;j<=n;j++)for(let i=0;i<=n;i++){positions.push(i/n*t.size,t.heights[j*t.grid+i],j/n*t.size);uv.push(i/n,1-j/n);}for(let j=0;j<n;j++)for(let i=0;i<n;i++){const a=j*t.grid+i;indices.push(a,a+t.grid,a+1,a+1,a+t.grid,a+t.grid+1);}geo.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));geo.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));geo.setIndex(indices);geo.computeVertexNormals();return geo;}
 export async function buildFlightWorld(t:TerrainData,mission:number){
  const scene=new THREE.Scene(),region=FLIGHT_REGIONS.find(r=>r.id===t.id)!;
- const dawn=region.weather==='dawn'||region.weather==='sunset',fogColor=dawn?'#ced5d6':'#d2e0e4';scene.fog=new THREE.FogExp2(fogColor,region.weather==='mist'?.000095:.000065);
- const sky=new Sky();sky.scale.setScalar(220000);scene.add(sky);const u=sky.material.uniforms;u.turbidity.value=3;u.rayleigh.value=1.7;u.mieCoefficient.value=.004;u.mieDirectionalG.value=.86;const sun=new THREE.Vector3().setFromSphericalCoords(1,THREE.MathUtils.degToRad(dawn?79:55),THREE.MathUtils.degToRad(118));u.sunPosition.value.copy(sun);
- scene.add(new THREE.HemisphereLight('#c9e3ff','#817556',2.2));const key=new THREE.DirectionalLight(dawn?'#fff0cf':'#ffffff',2.3);key.position.copy(sun.clone().multiplyScalar(10000));scene.add(key);
+ const dawn=region.weather==='dawn'||region.weather==='sunset',fogColor=dawn?'#b9c9cf':'#b4cddd';scene.fog=new THREE.FogExp2(fogColor,region.weather==='mist'?.000075:.000042);
+ const sky=new Sky();sky.scale.setScalar(220000);scene.add(sky);const u=sky.material.uniforms;u.turbidity.value=2;u.rayleigh.value=2.4;u.mieCoefficient.value=.003;u.mieDirectionalG.value=.8;const sun=new THREE.Vector3().setFromSphericalCoords(1,THREE.MathUtils.degToRad(dawn?75:48),THREE.MathUtils.degToRad(118));u.sunPosition.value.copy(sun);
+ scene.add(new THREE.HemisphereLight('#c9e3ff','#817556',1.7));const key=new THREE.DirectionalLight(dawn?'#fff0cf':'#ffffff',2.6);key.position.copy(sun.clone().multiplyScalar(10000));key.castShadow=true;key.shadow.mapSize.set(1024,1024);key.shadow.camera.left=key.shadow.camera.bottom=-350;key.shadow.camera.right=key.shadow.camera.top=350;key.shadow.camera.near=10;key.shadow.camera.far=10000;key.shadow.bias=-.0002;key.shadow.normalBias=2;scene.add(key,key.target);
  const texture=await new THREE.TextureLoader().loadAsync(`/flight/terrain/${t.id}.webp`);texture.colorSpace=THREE.SRGBColorSpace;texture.anisotropy=8;
- const terrain=new THREE.Mesh(terrainGeometry(t),new THREE.MeshStandardMaterial({map:texture,roughness:1,metalness:0}));terrain.name=`Real ${t.name} elevation and aerial photography`;scene.add(terrain);
+ const terrain=new THREE.Mesh(terrainGeometry(t),new THREE.MeshStandardMaterial({map:texture,roughness:1,metalness:0}));terrain.receiveShadow=true;terrain.name=`Real ${t.name} elevation and aerial photography`;scene.add(terrain);
  // A 3x wider geographic context, with a hole for the detailed central mesh.
  // Only the inner area is playable; the distant hills are also real DEM data.
  const farResponse=await fetch(`/flight/terrain/${t.id}-outer.json`);if(!farResponse.ok)throw new Error('Outer scenery download failed.');const far=await farResponse.json() as Pick<TerrainData,'grid'|'size'|'heights'>;
  const farTexture=await new THREE.TextureLoader().loadAsync(`/flight/terrain/${t.id}-outer.webp`);farTexture.colorSpace=THREE.SRGBColorSpace;farTexture.anisotropy=4;const farGeo=terrainGeometry({...t,...far}),farIndices=[],n=far.grid-1;
  for(let j=0;j<n;j++)for(let i=0;i<n;i++){if(i>=n/3&&i<n*2/3&&j>=n/3&&j<n*2/3)continue;const a=j*far.grid+i;farIndices.push(a,a+far.grid,a+1,a+1,a+far.grid,a+far.grid+1);}farGeo.setIndex(farIndices);farGeo.translate(-t.size,0,-t.size);const farMesh=new THREE.Mesh(farGeo,new THREE.MeshStandardMaterial({map:farTexture,roughness:1}));farMesh.name='Real surrounding terrain';scene.add(farMesh);
- // Actual sea-level water only; mountainous regions never receive a fake water layer.
- if(Math.min(...t.heights)<1){const water=new THREE.Mesh(new THREE.PlaneGeometry(t.size*3,t.size*3),new THREE.MeshPhysicalMaterial({color:'#457a8c',roughness:.35,metalness:.35,transparent:true,opacity:.55}));water.rotation.x=-Math.PI/2;water.position.set(t.size/2,.8,t.size/2);scene.add(water);}
+ const sceneryResponse=await fetch(`/flight/scenery/${t.id}.json`);if(!sceneryResponse.ok)throw new Error('Geographic scenery download failed.');const sceneryData=await sceneryResponse.json() as SceneryData,scenery=buildGeographicScenery(t,sceneryData);scene.add(scenery.group);
+ // Original periodic normal map; reflective water covers sea and mapped lakes.
+ const normals=new Uint8Array(128*128*4);for(let j=0;j<128;j++)for(let i=0;i<128;i++){const k=(j*128+i)*4,a=i/128*Math.PI*2,b=j/128*Math.PI*2;normals[k]=128+Math.sin(a*8+b*3)*32;normals[k+1]=128+Math.cos(b*7+a*2)*32;normals[k+2]=245;normals[k+3]=255;}const waterNormals=new THREE.DataTexture(normals,128,128);waterNormals.wrapS=waterNormals.wrapT=THREE.RepeatWrapping;waterNormals.needsUpdate=true;const waters:Water[]=[];
+ const waterOptions={textureWidth:256,textureHeight:256,waterNormals,sunDirection:sun,sunColor:0xffefd0,waterColor:0x235466,distortionScale:2.8,fog:true};
+ if(Math.min(...t.heights)<1){const water=new Water(new THREE.PlaneGeometry(t.size*3,t.size*3),waterOptions);water.rotation.x=-Math.PI/2;water.position.set(t.size/2,.8,t.size/2);scene.add(water);waters.push(water);}
+ // Only the largest inland lake: each reflection adds a render pass. Elevation
+ // is estimated from the DEM shoreline, not a surveyed water level.
+ const lake=sceneryData.lakes.filter(p=>polygonArea(p)>150000).sort((a,b)=>polygonArea(b)-polygonArea(a))[0];if(lake){const levels=lake.map(([x,z])=>terrainHeight(t,x,z)).sort((a,b)=>a-b),level=levels[Math.floor(levels.length*.2)];if(level>5){const geometry=new THREE.ShapeGeometry(geographicShape(lake));geometry.rotateX(-Math.PI/2);const water=new Water(geometry,waterOptions);water.position.y=level+1;scene.add(water);waters.push(water);}}
+ if(!waters.length)waterNormals.dispose();
  // Wispy, translucent cloud banks. Their shadows do not hide the geographic detail.
  const c=document.createElement('canvas');c.width=c.height=128;const ctx=c.getContext('2d')!;const gradient=ctx.createRadialGradient(64,64,0,64,64,64);gradient.addColorStop(0,'rgba(255,255,255,.22)');gradient.addColorStop(.45,'rgba(255,255,255,.12)');gradient.addColorStop(1,'rgba(255,255,255,0)');ctx.fillStyle=gradient;ctx.fillRect(0,0,128,128);const cloudTex=new THREE.CanvasTexture(c),clouds=new THREE.Group();for(let i=0;i<16;i++){const cloud=new THREE.Sprite(new THREE.SpriteMaterial({map:cloudTex,transparent:true,depthWrite:false,opacity:region.weather==='mist'?.8:.4}));cloud.position.set((.1+(i*.237)% .8)*t.size,1800+(i%4)*360,(.15+(i*.173)%.75)*t.size);cloud.scale.set(2600,500,1);clouds.add(cloud);}scene.add(clouds);
  const markers=new THREE.Group();scene.add(markers);
  function setMission(m:number){markers.clear();const points=missionPoints(m,t),kind=MISSIONS[Math.min(11,m)].kind;points.forEach((p,i)=>{const target=new THREE.Group();target.position.set(p.x,p.y,p.z);const ring=new THREE.Mesh(new THREE.TorusGeometry(kind==='route'?260:160,kind==='route'?8:4,10,80),new THREE.MeshBasicMaterial({color:'#ffdb81',transparent:true,opacity:kind==='route'?.85:.6}));if(kind!=='route')ring.rotation.x=Math.PI/2;else if(i+1<points.length)ring.rotation.y=Math.atan2(points[i+1].x-p.x,p.z-points[i+1].z);target.add(ring);const beam=new THREE.Mesh(new THREE.CylinderGeometry(8,8,450,12),new THREE.MeshBasicMaterial({color:'#ffd78b',transparent:true,opacity:.4,depthWrite:false}));beam.position.y=-225;target.add(beam);markers.add(target);});}
  setMission(mission);
  const local=buildAircraft('#cf584a'),remote=buildAircraft('#347f8e');scene.add(local.plane,remote.plane);remote.plane.visible=false;
- return {scene,terrain,local,remote,markers,clouds,setMission};
+ const update=(time:number,p:Aircraft)=>{scenery.update(time);waters.forEach(w=>{w.material.uniforms.time.value=time*.5;});local.animate(p,time);key.target.position.set(p.x,p.y,p.z);key.position.copy(key.target.position).addScaledVector(sun,6000);};
+ return {scene,terrain,local,remote,markers,clouds,setMission,scenery,update};
 }
 export function placeAircraft(group:THREE.Group,p:Aircraft){group.position.set(p.x,p.y,p.z);group.rotation.set(p.pitch,p.yaw,-p.roll,'YXZ');}
-export function disposeWorld(scene:THREE.Scene){const materials=new Set<THREE.Material>(),textures=new Set<THREE.Texture>();scene.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();for(const m of Array.isArray(o.material)?o.material:[o.material])materials.add(m);}else if(o instanceof THREE.Sprite)materials.add(o.material);});for(const m of materials){for(const value of Object.values(m))if(value instanceof THREE.Texture)textures.add(value);m.dispose();}textures.forEach(t=>t.dispose());scene.clear();}
+export function disposeWorld(scene:THREE.Scene){const materials=new Set<THREE.Material>(),textures=new Set<THREE.Texture>();scene.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();if(o instanceof THREE.InstancedMesh)o.dispose();for(const m of Array.isArray(o.material)?o.material:[o.material])materials.add(m);}else if(o instanceof THREE.Sprite)materials.add(o.material);if(o instanceof THREE.DirectionalLight||o instanceof THREE.SpotLight||o instanceof THREE.PointLight)o.shadow.dispose();});for(const m of materials){for(const value of Object.values(m))if(value instanceof THREE.Texture)textures.add(value);if(m instanceof THREE.ShaderMaterial)for(const u of Object.values(m.uniforms))if(u.value instanceof THREE.Texture){textures.add(u.value);if(u.value.isRenderTargetTexture){const target=(u.value as THREE.Texture&{renderTarget?:THREE.WebGLRenderTarget}).renderTarget;target?.dispose();}}m.dispose();}textures.forEach(t=>t.dispose());scene.clear();}

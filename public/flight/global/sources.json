@@ -1,0 +1,18 @@
+{
+  "accessed": "2026-10-03",
+  "license": "Public Domain",
+  "source": "https://ourairports.com/data/",
+  "airports": 72603,
+  "receipts": [
+    {
+      "url": "https://davidmegginson.github.io/ourairports-data/airports.csv",
+      "sha256": "197c68d0520b01c35f03c7fa15bf3467bf8ed788b3ed5a128e86eccebf4465ef"
+    },
+    {
+      "url": "https://davidmegginson.github.io/ourairports-data/runways.csv",
+      "sha256": "c1f34a692be3fde018f82b2ebe8b2f3e427684f6cec4d2437d547321009bb7e7"
+    }
+  ],
+  "withRunwayDimensions": 37322,
+  "withSurveyedEndpoints": 10953
+}
