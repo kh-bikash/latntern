@@ -1,18 +1,19 @@
 import { WORLD_SCENES } from "./world";
 import { terrainFor } from "./terrain";
 import { routeFor } from './routes';
+import {worldSites,safePoint,pathsFor} from './worldLayout';
 
 export type TrialKind = "bond" | "mirrors" | "bells" | "embers" | "escort" | "tide" | "guardian" | "runes" | "rescue" | "balance";
 export type Difficulty = 'story'|'adventure'|'expert';
 export type Upgrade = 'wind'|'sight'|'bond';
 export type Point = { x: number; y: number };
-export type Traveler = Point & { facing: number; moving: boolean; grounded: boolean; seen: number };
+export type Traveler = Point & { facing: number; moving: boolean; grounded: boolean; seen: number;realm?:number };
 export type Platform = { x: number; y: number; w: number; spirit?: boolean };
-export type Trial = { id: string; x: number; kind: TrialKind; title: string; hint: string; sockets: [Point, Point]; targets: [number, number]; melodies: [number[], number[]]; embers: [Point[], Point[]] };
+export type Trial = { id: string; x: number; y:number; kind: TrialKind; title: string; hint: string; sockets: [Point, Point]; targets: [number, number]; melodies: [number[], number[]]; embers: [Point[], Point[]] };
 export type TrialState = { solved: boolean; turns: [number, number]; notes: [number, number]; pieces: [number[], number[]]; pulses: [number, number]; progress: number; lastPulse: number };
-export type CampaignRoom = { code: string; seat: 0 | 1; names: [string,string|null]; status: "waiting"|"playing"|"won"; realm: number; unlocked: number; players: [Traveler,Traveler]; trials: TrialState[]; shards: string[]; pages: string[]; ready: [boolean,boolean]; emotes: [string,string]; checkpoints: [number,number]; created: number; version: number; hint: string; playtime: number; difficulty:Difficulty; quests:string[]; upgrades:Record<Upgrade,number>; spent:number; choices:[string|null,string|null]; completed:number[];discoveries:string[] };
+export type CampaignRoom = { code: string; seat: 0 | 1; names: [string,string|null]; status: "waiting"|"playing"|"won"; realm: number; unlocked: number; players: [Traveler,Traveler]; trials: TrialState[]; shards: string[]; pages: string[]; ready: [boolean,boolean]; emotes: [string,string]; checkpoints: [number,number]; created: number; version: number; hint: string; playtime: number; difficulty:Difficulty; quests:string[]; upgrades:Record<Upgrade,number>; spent:number; choices:[string|null,string|null]; completed:number[];discoveries:string[];archive?:Record<number,TrialState[]>;visited?:number[];travelTarget?:number|null;worldVersion?:number };
 
-export const WIDTH = 4100, FLOOR = 730, HEIGHT = 940;
+export const WIDTH = 1800, FLOOR = 700, HEIGHT = 1200;
 export const SIGILS = ["Moon", "River", "Mountain", "Sun"];
 export const BELL_NAMES = ["Leaf", "Rain", "Star"];
 const chapterNames = ["The vanished dawn","The listening forest","A city of memories","What the tide keeps","The winter promise","The river between us","Beneath the forgotten world","A light worth sharing"];
@@ -49,21 +50,21 @@ const instructions: Record<TrialKind,string> = {
   bond:"Stand at your lantern shrine. Both travelers hold E together to restore the crossing.",
   mirrors:"Your lantern reveals your own compass mark. Turn your mirror with E until it matches. Help your partner find theirs.",
   bells:"Read your melody, then ring the three bells in that order with E. Each traveler has a different melody.",
-  embers:"Gather the wishes that match your lantern. Jump to the upper paths; each traveler must find both wishes.",
+  embers:"Gather the wishes that match your lantern. Explore the nearby paths; each traveler must find both wishes.",
   escort:"Follow the silver fox together and hold E to guide it. It waits when either traveler is too far away.",
   tide:"Stand at your shrine and hold E together while the tide is low. The light rests during high tide.",
-  guardian:"Stand at your shrines and hold E together. Jump over the guardian's shadow waves; keep your bond alight.",
+  guardian:"Stand at your shrines and hold E together. Leave its danger circle or dodge with Space when the light turns violet; keep your bond alight.",
   runes:"Your lantern reveals your companion’s seal. Tell them which mark to choose, then select your own with E. A wrong seal resets both travelers.",
   rescue:"Reach the two trapped crane spirits matching your lantern, then return to your own shrine. Hold E together to release the flock.",
-  balance:"Climb to your lantern’s raised shrine. Both hold E while the wind is calm. The crossing charges only when both travelers have landed.",
+  balance:"Find your lantern shrine. Both hold E while the wind is calm. Stay still during gusts.",
 };
 export const REALMS = WORLD_SCENES.map((scene,index)=>({ ...scene, chapter:chapterNames[Math.floor(index/2)], index, narrative:stories[index], accent:["#edc98a","#bdd9ec","#94d7bd","#76d1cb","#c4a5de","#9dc8e8","#e6cf9b","#f2ad82","#d8e6ff","#94c4dd","#eeae91","#d9c48d","#85dedb","#b4b5ef","#ffd398","#ffe6b0"][index], epilogue: index===15?"The dawn returns as a hundred open doors, a table with room for one more, and the wisdom to share what you have. The village's prosperity begins with a light nobody owns.":stories[Math.min(15,index+1)] }));
 
 export function trialsFor(realm:number,difficulty:Difficulty='adventure'): Trial[] {
   return arrangements[realm].map((kind,i)=>{
-    const x=routeFor(realm).centers[i];
+    const {x,y}=worldSites(realm)[i];
     const raised=(realm+i)%3===2;
-    return {id:`r${realm}-t${i}`,x,kind,title:`${titles[kind]}${realm>1?` · ${WORLD_SCENES[realm].title}`:''}`,hint:instructions[kind], sockets:[{x:x-115,y:kind==='balance'?FLOOR-145:FLOOR},{x:x+100,y:kind==='balance'||raised?FLOOR-145:FLOOR}], targets:[(realm+i+1)%4,(realm*3+i+2)%4], melodies:[Array.from({length:3+Math.floor(realm/6)+(difficulty==='expert'?2:0)},(_,n)=>(realm+i+n*2)%3),Array.from({length:3+Math.floor(realm/6)+(difficulty==='expert'?2:0)},(_,n)=>(realm+i+n+1)%3)], embers:[[{x:x-190,y:FLOOR-60},{x:x-70,y:FLOOR-240}],[{x:x+180,y:FLOOR-60},{x:x+55,y:FLOOR-355}]]};
+    return {id:`r${realm}-t${i}`,x,y,kind,title:`${titles[kind]}${realm>1?` · ${WORLD_SCENES[realm].title}`:''}`,hint:instructions[kind], sockets:[safePoint(realm,{x:x-95,y:y+35}),safePoint(realm,{x:x+95,y:y-35})], targets:[(realm+i+1)%4,(realm*3+i+2)%4], melodies:[Array.from({length:3+Math.floor(realm/6)+(difficulty==='expert'?2:0)},(_,n)=>(realm+i+n*2)%3),Array.from({length:3+Math.floor(realm/6)+(difficulty==='expert'?2:0)},(_,n)=>(realm+i+n+1)%3)], embers:[[safePoint(realm,{x:x-110,y:y-80}),safePoint(realm,{x:x-70,y:y-160})],[safePoint(realm,{x:x+140,y:y+75}),safePoint(realm,{x:x+55,y:y+165})]]};
   });
 }
 export function platformsFor(realm:number): Platform[] {
@@ -82,11 +83,12 @@ export function platformsFor(realm:number): Platform[] {
   for(let i=0;i<6;i++)result.push({x:350+i*610+terrain.shift,y:FLOOR-105-(i%3)*75+(terrain.lift-115)*.3,w:terrain.width+30,spirit:(i+realm)%2===1});
   return result;
 }
-export function shardPoints(realm:number) { return Array.from({length:6},(_,i)=>({id:`r${realm}-s${i}`,x:400+i*610,y:FLOOR-145-(i%3)*75})); }
-export function pagePoints(realm:number) { return [{id:`r${realm}-p0`,x:205,y:FLOOR-20},{id:`r${realm}-p1`,x:3650,y:FLOOR-20}]; }
-export function inspectPoints(realm:number){return REALMS[realm].hotspots.map((hotspot,i)=>({...hotspot,id:`r${realm}-i${i}`,x:1060+i*960,y:FLOOR}));}
+export function shardPoints(realm:number) { const paths=pathsFor(realm),sites=[paths[0][0],paths[0][2],paths[0][3],paths[0][5],paths[1][2],paths[1][4]];return sites.map((p,i)=>({id:`r${realm}-s${i}`,...safePoint(realm,{x:p.x+(i%2?65:-65),y:p.y+(i===3?-65:45)})})); }
+export function pagePoints(realm:number) { const p=pathsFor(realm);return [{id:`r${realm}-p0`,...safePoint(realm,{x:p[0][2].x-75,y:p[0][2].y+90})},{id:`r${realm}-p1`,...safePoint(realm,{x:p[0][3].x+70,y:p[0][3].y-85})}]; }
+export function inspectPoints(realm:number){return REALMS[realm].hotspots.map((hotspot,i)=>({...hotspot,id:`r${realm}-i${i}`,...safePoint(realm,{x:450+i*480,y:i===1?1040:170})}));}
+export function escortPoint(t:Trial,progress:number){return {x:t.x-120+progress*240,y:t.y+Math.sin(progress*Math.PI)*100};}
 export function trialInitial():TrialState {return {solved:false,turns:[0,0],notes:[0,0],pieces:[[],[]],pulses:[0,0],progress:0,lastPulse:0};}
-export function spawn(seat:number):Traveler {return {x:130+seat*65,y:FLOOR,facing:1,moving:false,grounded:true,seen:Date.now()};}
+export function spawn(seat:number):Traveler {return {x:875+seat*65,y:600,facing:2,moving:false,grounded:true,seen:Date.now()};}
 export const JOURNAL_PAGES = [
   "Keeper's note: ‘Warm light gives the world its shape. Spirit light gives it meaning. Carry them together.’",
   "A villager's wish: ‘When the dawn returns, may we remember the people who helped us through the night.’",

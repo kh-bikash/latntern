@@ -26,3 +26,9 @@ Image generation prompts:
 - Flower: “One single five-petal Japanese spring wildflower, delicate ivory-pink translucent petals with subtle veins, tiny golden center, realistically shaped and softly lit, viewed from a slightly elevated three-quarter angle. Flower head only, transparent background.”
 
 - public/adventure/residents.png: original AI-generated transparent atlas of four residents, a fox spirit, a crane spirit, a lantern shrine, and a rune compass, created for this release. These are original illustrations, not extracted commercial game assets.
+
+## Free-roaming world release
+
+- `public/world/maps-0.webp` through `maps-3.webp`: sixteen original AI-generated, hand-painted oblique Japanese region maps, organized as four 2×2 atlases. Generated for this game, then compressed locally to WebP.
+- `public/world/walkers.webp`: original AI-generated transparent 8×4 walking atlas for Aoi and Ren; four directions with four walking frames per character. Compressed to WebP with alpha preserved.
+- Gameplay references informed exploration and cooperative design only. No commercial game artwork, characters, music, or map data were copied.

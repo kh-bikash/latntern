@@ -1,43 +1,50 @@
-# Variety review — 2 October 2026
+# Open world release review
 
-## Findings and changes
+## Change in direction
 
-The 16 regions already had separate scenery, terrain artwork, weather, stories, resident promises, and puzzle arrangements. Their four crossing locations and approach platforms still followed a repeated template. This review introduced 16 explicit crossing layouts, four approach families with extra terraces and switchbacks, regional grip and airborne gusts, and functional proximity for spirit bridges. The warm traveler needs the blue traveler nearby to use those bridges. The existing 64 crossings reuse ten puzzle mechanics; they are not 64 entirely separate mechanics.
+The active game now uses free-roaming movement on two axes. It has no jumping platforms or linear puzzle barriers. Sixteen connected regions form a 4×4 atlas. The party can choose neighboring regions before completing their mysteries, leave partial progress, and return later. A joint ending requires restoring all sixteen regions.
 
-## Reference principles
+This is a 2D regional open world with transitions. It is not a seamless 3D city or a simulation of every object pictured in the scenery. Painted buildings, vegetation, and water provide scenery; highlighted landmarks, shrines, bells, compasses, spirits, chests, residents, shards, and exits provide interactions.
 
-- [It Takes Two — official EA page](https://www.ea.com/games/it-takes-two/it-takes-two): complementary abilities and changing challenges support cooperative variety.
-- [Super Mario Bros. Wonder — official Nintendo page](https://www.nintendo.com/us/store/products/super-mario-bros-wonder-switch/): transformations and collectible abilities create different ways to approach platforming.
-- [Sackboy: A Big Adventure — official PlayStation page](https://www.playstation.com/en-us/games/sackboy-a-big-adventure/): expressive traversal through distinct illustrated environments is a useful presentation reference.
+## Official references consulted
 
-These principles inform this original game. Characters, level maps, audio, and artwork from those games are not included.
+- [Breath of the Wild — Nintendo](https://www.nintendo.com/en-gb/Games/Nintendo-Switch-games/The-Legend-of-Zelda-Breath-of-the-Wild-1173609.html): player choice in exploration and landscape discovery.
+- [Stardew Valley multiplayer — developer](https://www.stardewvalley.net/stardew-valley-1-3-multiplayer-update-is-now-available/): shared cooperative sessions and friend invitations.
+- [It Takes Two — EA](https://www.ea.com/games/it-takes-two/it-takes-two): complementary character roles and cooperative story progression.
 
-## Region identities
+These are design references. Their artwork, characters, maps, music, and code were not copied.
 
-| Region | Route and environment | Crossing sequence |
-| --- | --- | --- |
-| Moonlit Pass | Sheltered introductory terraces, petals | Joined light, wishes, mirrors, bells |
-| Ridge of Stars | Windy switchbacks | Balance, partner runes, fox escort, crane rescue |
-| Bamboo Hollow | Rising branches and spirit bridges | Bells, rescue, runes, balance |
-| Hidden Falls | Staggered waterfall shelves | Mirrors, tides, rescue, escort |
-| Rain Lantern Alley | Wet rooftops, reduced grip | Runes, bells, mirrors, balance |
-| Canal of Echoes | Wide balconies and narrow upper routes | Escort, rescue, runes, bells |
-| Tidebound Gate | Coastal jumps and wind | Tides, wishes, balance, rescue |
-| Watchfire Cliff | Strong gusts and rising ledges | Escort, tides, bells, runes |
-| Snow Shrine | Broad snowy terraces | Balance, runes, wishes, rescue |
-| Iced Cedar Cave | Slippery ice and switchbacks | Mirrors, escort, bells, balance |
-| Maple Crossing | Branch ladders and autumn wind | Rescue, mirrors, tides, runes |
-| Koi Garden | Garden terraces and hidden upper stars | Bells, balance, escort, wishes |
-| Cavern of Echoes | Staggered crystal shelves | Escort, rescue, runes, mirrors |
-| The Luminous River | Close cooperative spirit bridges | Balance, bells, rescue, tides |
-| Village of Dawn | Rooftops and guardian preparation | Runes, bells, mirrors, guardian |
-| Square of Dawn | Finale combining traversal and teamwork | Rescue, balance, bells, guardian |
+## Region variety
 
-## Verification and limits
+| Region | Painted environment | Cooperative mysteries |
+|---|---|---|
+| Moonlit Pass | Sakura village, lit courtyards, shrines | Bond, wishes, compasses, bells |
+| Ridge of Stars | Alpine trails, ravines, rope bridges | Wind, seals, fox escort, cranes |
+| Bamboo Hollow | Bamboo, mossy paths, streams | Bells, cranes, seals, wind |
+| Hidden Falls | Waterfalls, pools, stone bridges | Compasses, tide, cranes, escort |
+| Rain Lantern Alley | Rain, tiled shops, lantern streets | Seals, bells, compasses, wind |
+| Canal of Echoes | Canals, boats, wooden bridges | Escort, cranes, seals, bells |
+| Tidebound Gate | Beaches, rock pools, coastal shrine | Tide, wishes, wind, cranes |
+| Watchfire Cliff | Sunset cliffs, watchtowers, paths | Escort, tide, bells, seals |
+| Snow Lantern Shrine | Snowy pines, shrines, braziers | Wind, seals, wishes, cranes |
+| Cedar Ice Cave | Ice, cedar roots, blue crystals | Compasses, escort, bells, wind |
+| Bridge of Returning | Autumn maples, river, stone bridges | Cranes, compasses, tide, seals |
+| Koi Memory Garden | Koi ponds, pagodas, gardens | Bells, wind, escort, wishes |
+| Starfall Cavern | Amethyst crystals, cavern pools | Escort, cranes, seals, compasses |
+| Echo River | Underground river, glowing reeds | Wind, bells, cranes, tide |
+| Homecoming Rise | Dawn village, mountain gardens | Seals, bells, compasses, guardian |
+| Square of Dawn | Festival streets, lanterns, temples | Cranes, wind, bells, guardian |
 
-- Automated traversal of all 64 server challenges, rewards, crafting, choices, authentication, and concurrent updates.
-- Conservative platform reachability checks for mandatory wishes and shrines in all 16 regions, assuming coordinated blue light.
-- Movement tests cover stable landings, double jump, ice momentum, and wind affecting airborne movement.
-- Scenery assets inspected for all 16 regions; local visual review uses the actual Canvas renderer. The local review harness is not shipped as a playable mode.
-- Previous live checks covered two independent browser identities, movement, a shared crossing, database health, and saved progress after reload.
-- Human playtesting has not established 56 hours of content or that every stage remains engaging throughout a long session. No download or award outcome is guaranteed.
+Each region has its own walking routes, story passages, resident promise, weather, puzzle arrangement, and melodies or seals. The 64 mysteries reuse ten mechanics; they are not 64 unique systems.
+
+## Verification
+
+- TypeScript check and production build.
+- Complete controlled-clock campaign test: all 64 mysteries, 96 stars, 32 memories, 48 landmarks, 16 resident promises, crafting, choices, and the ending.
+- Authentication, third-player rejection, simultaneous writes, idempotent rewards, and durable reload checks.
+- Walking routes to every mandatory object and exit in every region.
+- Four-direction movement, equal diagonal speed, running, stopping, and dodge cooldown checks.
+- Two travelers visit another region before completing any mysteries, return, and retain a later puzzle's partial progress.
+- Original map atlases and directional walking atlas inspected before use; locally compressed WebP assets preserve alpha.
+
+Controlled-clock tests are not evidence of human completion time. A 56-hour campaign, mass concurrency, commercial success, and awards have not been established. Cinematics use written dialogue and recorded sound cues, not spoken voice acting. Natural ambience and footsteps use recordings; sound starts after a player enables it.

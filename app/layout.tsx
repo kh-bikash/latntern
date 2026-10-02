@@ -3,6 +3,7 @@ import "./globals.css";
 import "./adventure.css";
 import "./cinematic.css";
 import "./expedition.css";
+import './open-world.css';
 
 export const metadata: Metadata = {
   title: "Lantern Relay: The Lost Dawn",

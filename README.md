@@ -1,16 +1,17 @@
 # Lantern Relay: The Lost Dawn
 
-A two-player cooperative adventure through 16 painted landscapes inspired by Japan. Two complementary lanterns restore the missing light of a mountain village.
+A two-player, free-roaming 2D adventure through 16 connected painted regions inspired by Japan. Two complementary lanterns restore the missing light of a mountain village.
 
 **Play:** [lantern-relay-ten.vercel.app](https://lantern-relay-ten.vercel.app/)
 
 ## Play
 
-One traveler creates a journey and chooses Story, Adventure, or Expert. Send the invitation link to a companion on another device. Both travelers are required to restore crossings and travel onward.
+One traveler creates a journey and chooses Story, Adventure, or Expert. Send the invitation link to a companion on another device. Both travelers are required to restore mysteries and travel between neighboring regions. Exploration is open from the beginning; missions can be completed in any order.
 
-- A/D or arrows: walk. Shift: run. Space: jump. E: interact or hold a shrine.
-- On a touch screen, use the on-screen direction, run, jump, and interaction controls.
+- WASD or arrows: walk north, south, east, or west. Shift: run. Space: dodge. E: interact or hold a shrine. Click a path to walk there; clicking a glowing object approaches and uses it.
+- On a touch screen, use the on-screen four direction, run, dodge, and interaction controls.
 - The current objective and lantern clue explain each puzzle. Tell your companion what their rune should be, repeat bell melodies, rescue crane spirits, escort foxes, and coordinate through tides, gusts, and guardian waves.
+- The atlas is a 4×4 network. Both players press E at the same marked exit to enter an adjacent region. Return to unfinished regions whenever you like. All sixteen must be restored before the finale.
 - Explore for stars, memories, and landmarks. Return to the resident camp to fulfill promises and craft shared movement, navigation, and restoration upgrades.
 - Progress is saved on the server. Keep your original browser session to resume your own traveler. An invitation joins the other traveler.
 
@@ -49,4 +50,4 @@ The campaign test traverses all 64 crossings and all progression systems, includ
 
 ## Architecture
 
-Next.js App Router, Canvas 2D rendering, Web Audio, server-authorized actions, Postgres persistence, optimistic version checks to prevent lost multiplayer updates, and short HTTP polling for two-player synchronization. This release does not contain a 3D renderer. Region scenery, weather, terrain palettes, puzzle arrangements, stories, and resident requests change throughout the journey. Sixteen explicit crossing layouts, regional wind and grip, and proximity-dependent spirit bridges vary traversal. See `REVIEW.md` for the design audit and verification limits.
+Next.js App Router, Canvas 2D rendering, Web Audio, server-authorized actions, Postgres persistence, optimistic version checks to prevent lost multiplayer updates, and short HTTP polling for two-player synchronization. This release does not contain a 3D renderer. Region scenery, weather, terrain palettes, puzzle arrangements, stories, and resident requests change throughout the journey. The active renderer uses sixteen original oblique world paintings, directional walking sprites, camera movement on two axes, a walking mesh and click route finding, regional weather, wildlife, and colored interaction markers. The earlier platform and 3D renderers are archived components and are not loaded by the game. This is a connected regional open world with transitions, rather than a seamless 3D simulation. See `REVIEW.md` for the design audit and verification limits.
