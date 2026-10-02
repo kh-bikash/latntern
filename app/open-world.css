@@ -10,3 +10,8 @@
 @media(max-width:700px){.open-world{min-height:530px;height:calc(100svh - 65px)}.open-world .world-location{left:12px;top:13px;padding:10px 13px;max-width:58%}.open-world .world-location h2{font-size:23px}.open-world .world-location small{font-size:7px;letter-spacing:1px}.open-world .world-location p{font-size:9px}.open-world .world-companion{right:12px;top:13px;font-size:9px}.open-world .world-clue{left:12px;bottom:168px;max-width:85%;font-size:11px;padding:9px 12px}.open-world .world-prompt{bottom:121px;font-size:10px}.compass-controls{left:12px}.open-world .touch-actions{right:12px;bottom:24px;gap:5px}.open-world .touch-actions button{padding:0 9px;min-width:35px;height:40px;font-size:10px}.open-world .checkpoint-control{bottom:103px;font-size:9px}.atlas-grid .atlas-painted-map{height:80px}.atlas-grid article h3{font-size:13px}.atlas-grid article small{font-size:7px}.atlas-grid{gap:8px!important}.atlas-grid article>div:last-child{padding:9px!important}}
 .open-world .world-sight{top:265px;left:4%;font-size:11px;background:#071b2be8}
 .open-world .checkpoint-control{top:220px;bottom:auto;left:4%;transform:none;background:#071b2bcc;border:1px solid #b6c4c533;border-radius:6px;padding:8px 12px}
+
+.open-world .grounded-renderer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;cursor:default}
+.open-world canvas[data-renderer]{position:absolute;inset:0;z-index:1;background:transparent}
+.open-world .world-location,.open-world .world-companion,.open-world .world-clue,.open-world .world-prompt,.open-world .world-sight,.open-world .touch-move,.open-world .touch-actions,.open-world .checkpoint-control,.open-world .travel-cancel{z-index:2}
+.open-world .world-loading{z-index:3}

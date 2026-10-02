@@ -1,4 +1,4 @@
-// Traversable paths follow the clearings and bridges in the sixteen painted maps.
+// Shared navigable trails used by saved journeys, terrain generation and route finding.
 export type MapPoint={x:number;y:number};
 const northSouth=[
  [50,8,48,27,53,44,49,63,53,81,50,94], [48,7,55,25,46,44,52,65,43,82,50,94],
@@ -21,7 +21,8 @@ const eastWest=[
  [5,50,23,48,37,53,50,50,63,47,79,52,95,50], [5,50,23,53,37,48,50,50,63,54,79,49,95,50],
 ];
 const points=(list:number[]):MapPoint[]=>Array.from({length:list.length/2},(_,i)=>({x:list[i*2]*18,y:list[i*2+1]*12}));
-export function pathsFor(realm:number){return [points(northSouth[realm]),points(eastWest[realm])];}
+const pathCache=new Map<number,MapPoint[][]>();
+export function pathsFor(realm:number){let value=pathCache.get(realm);if(!value){value=[points(northSouth[realm]),points(eastWest[realm])];pathCache.set(realm,value);}return value;}
 export function worldSites(realm:number){const p=pathsFor(realm);return [p[0][1],p[0][4],p[1][2],p[1][4]];}
 const segment=(p:MapPoint,a:MapPoint,b:MapPoint)=>{const dx=b.x-a.x,dy=b.y-a.y,t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy)));return {x:a.x+t*dx,y:a.y+t*dy};};
 export function projectPath(realm:number,p:MapPoint){let nearest=p,distance=Infinity;for(const path of pathsFor(realm))for(let i=1;i<path.length;i++){const q=segment(p,path[i-1],path[i]),d=Math.hypot(p.x-q.x,p.y-q.y);if(d<distance){nearest=q;distance=d;}}return nearest;}

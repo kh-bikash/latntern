@@ -5,7 +5,7 @@ export type WorldBody=Point & {vx:number;vy:number;direction:number;dash:number;
 export function stepWorld(b:WorldBody,dt:number,horizontal:number,vertical:number,run:boolean,dodge:boolean,upgraded=false,traction=1){
  b.cooldown=Math.max(0,b.cooldown-dt);b.dash=Math.max(0,b.dash-dt);
  if(dodge&&b.cooldown===0){b.dash=.3;b.cooldown=upgraded?.9:1.6;}
- const length=Math.hypot(horizontal,vertical),speed=b.dash>0?540:run?300:205;
+ const length=Math.hypot(horizontal,vertical),speed=b.dash>0?340:run?175:80;
  const dx=length?horizontal/length:b.dash>0?[0,1,0,-1][b.direction]:0,dy=length?vertical/length:b.dash>0?[-1,0,1,0][b.direction]:0;
  const response=Math.min(1,dt*(length?12:18)*traction);
  b.vx+=(dx*speed-b.vx)*response;b.vy+=(dy*speed-b.vy)*response;

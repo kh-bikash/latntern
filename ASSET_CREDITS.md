@@ -32,3 +32,9 @@ Image generation prompts:
 - `public/world/maps-0.webp` through `maps-3.webp`: sixteen original AI-generated, hand-painted oblique Japanese region maps, organized as four 2×2 atlases. Generated for this game, then compressed locally to WebP.
 - `public/world/walkers.webp`: original AI-generated transparent 8×4 walking atlas for Aoi and Ren; four directions with four walking frames per character. Compressed to WebP with alpha preserved.
 - Gameplay references informed exploration and cooperative design only. No commercial game artwork, characters, music, or map data were copied.
+
+## Grounded 3D gameplay release
+
+- `public/models/traveler-motion.glb`: the fully clothed Vanguard/Soldier character and Idle/Walk/Run clips supplied by the [official Three.js example](https://threejs.org/examples/webgl_animation_skinning_additive_blending), sourced from Mixamo. Used inside this game, with runtime proportions and material tints. [Adobe Mixamo usage FAQ](https://helpx.adobe.com/creative-cloud/faq/mixamo-faq.html). This asset is not sold as a standalone model.
+- Existing Poly Haven scans and terrain textures listed above are now loaded by gameplay, rather than remaining unused files.
+- The older humanoid meshes and painted walking atlas are retained as archived development assets and are not loaded by the active renderer.

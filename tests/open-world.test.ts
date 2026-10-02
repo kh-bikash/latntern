@@ -19,7 +19,7 @@ test('every region has connected walking routes to every puzzle, collectible, re
 test('free movement supports four directions, normalized diagonals, running, stopping and dodge cooldown',()=>{
  const fresh=():WorldBody=>({x:900,y:600,vx:0,vy:0,direction:2,dash:0,cooldown:0,moving:false});
  const east=fresh(),diagonal=fresh(),north=fresh(),running=fresh();for(let i=0;i<60;i++){stepWorld(east,1/60,1,0,false,false);stepWorld(diagonal,1/60,1,1,false,false);stepWorld(north,1/60,0,-1,false,false);stepWorld(running,1/60,1,0,true,false);}
- assert(east.x>1080);assert(north.y<420);assert.equal(north.direction,0);assert.equal(east.direction,1);assert(running.x>east.x+80);assert(Math.abs(Math.hypot(diagonal.x-900,diagonal.y-600)-(east.x-900))<1);
+ assert(east.x>970);assert(north.y<530);assert.equal(north.direction,0);assert.equal(east.direction,1);assert(running.x>east.x+80);assert(Math.abs(Math.hypot(diagonal.x-900,diagonal.y-600)-(east.x-900))<1);
  for(let i=0;i<60;i++)stepWorld(east,1/60,0,0,false,false);assert(Math.abs(east.vx)<1);assert(!east.moving);
  const dash=fresh();stepWorld(dash,.05,0,0,false,true);assert(dash.dash>0&&dash.cooldown>1);const cooldown=dash.cooldown;stepWorld(dash,.05,0,0,false,true);assert(dash.cooldown<cooldown,'Repeated dodge cannot restart cooldown');assert(dash.y>600,'Stationary dodge uses current facing');
  const bounds=fresh();for(let i=0;i<1000;i++)stepWorld(bounds,.02,1,1,true,false);assert(bounds.x<=WIDTH-35&&bounds.y<=HEIGHT-35);
