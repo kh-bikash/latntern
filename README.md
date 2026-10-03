@@ -1,6 +1,6 @@
 # HINODE — Flight Simulator 6.0
 
-A browser flight simulator on a streaming Earth: a six-degree-of-freedom aerodynamic flight model, three aircraft, live weather, live air traffic, ATC with voice, autopilot and autoland, at 72,603 real airports. Fly solo with time acceleration or share a flight with a second pilot.
+A browser flight simulator on a streaming Earth: a six-degree-of-freedom aerodynamic flight model, twenty aircraft, live weather, live air traffic, ATC with voice, autopilot and autoland, at 72,603 real airports. Fly solo with time acceleration or share a flight with a second pilot.
 
 **Play:** https://lantern-relay-ten.vercel.app/
 
@@ -82,7 +82,7 @@ To rebuild snapshots, install Pillow in Python and run `python scripts/fetch-fli
 
 ## Verification
 
-The world-flight suite (tests/world-flight.test.ts) checks the airport catalog and both runway directions, ISA atmosphere and altimeter values, METAR decoding, wind-based runway selection and ATIS, published-class takeoff roll, climb rate and stall speed for each aircraft, fly-by-wire alpha protection, crash detection (gear-up, hard impact, wingtip strike, ditching), a complete AI-copilot flight from Haneda to Narita in all three aircraft (takeoff, climb, cruise, ILS capture, autoland, rollout), an airliner landing in gusty crosswind and turbulence with go-around logic, and two-pilot authentication with different aircraft and airliner speeds. The browser build was also exercised in headless Edge: planner with live METARs, takeoff under the AI copilot, ATC hand-off and a live-traffic advisory, all four camera views and the phone layout. Long-haul flights and every airport have not been manually flown.
+The world-flight suite (tests/world-flight.test.ts) checks the airport catalog and both runway directions, ISA atmosphere and altimeter values, METAR decoding, wind-based runway selection and ATIS, published-class takeoff roll, climb rate and stall speed for each aircraft, fly-by-wire alpha protection, crash detection (gear-up, hard impact, wingtip strike, ditching), a complete AI-copilot flight from Haneda to Narita in every aircraft (takeoff, climb, cruise, ILS capture, autoland, rollout), an airliner landing in gusty crosswind and turbulence with go-around logic, and two-pilot authentication with different aircraft and airliner speeds. The browser build was also exercised in headless Edge: planner with live METARs, takeoff under the AI copilot, ATC hand-off and a live-traffic advisory, all four camera views and the phone layout. Long-haul flights and every airport have not been manually flown.
 
 The flight suite checks six distinct terrain snapshots, mountain elevation, rendered triangle / collision agreement, control behavior, all guided navigation/survey/delivery/landing approaches, and all twelve shared server mission transitions with token authentication, persistence, concurrency, invalid actions and both-pilot confirmation. Browser visual review is separate from those automated checks; neither establishes simulator-grade realism or large-scale performance.
 
