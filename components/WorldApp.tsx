@@ -6,6 +6,7 @@ import {airportEnds,geoDistance,worldSpawn,START_MODES,type Airport,type WorldPl
 import {AIRCRAFT,AIRCRAFT_IDS,CATEGORIES,spec,rangeKm,cruiseAltitudeFt,vSpeeds,aircraftMass,type AircraftId,type Category} from '@/lib/aircraft';
 import {activeRunway,windComponents,WEATHER_PRESETS,type Weather,type WeatherPreset} from '@/lib/weather';
 import {loadMetars,weatherAt} from '@/lib/weatherClient';
+import {shortMode} from '@/lib/autopilot';
 import type {Touchdown} from '@/lib/flightModel';
 import {createSim,DEFAULT_SETTINGS,TIME_PRESETS,type Sim,type Settings,type Telemetry} from './sim';
 import type {View,CanvasEvent} from './WorldCanvas';
@@ -19,7 +20,7 @@ function RunwaySelect({airport,wx,value,onChange,label}:{airport:Airport|null;wx
 export default function WorldApp(){
  const [room,setRoom]=useState<WorldRoom|null>(null),[session,setSession]=useState<Session|null>(null),[saved,setSaved]=useState<Session|null>(null),[from,setFrom]=useState<Airport|null>(null),[to,setTo]=useState<Airport|null>(null),[name,setName]=useState(''),[code,setCode]=useState(''),[mode,setMode]=useState<'create'|'join'>('create');
  const [aircraft,setAircraft]=useState<AircraftId>('jet'),[cat,setCat]=useState<Category>('Narrowbody'),[start,setStart]=useState<StartMode>('runway'),[settings,setSettings]=useState<Settings>(DEFAULT_SETTINGS),[depRw,setDepRw]=useState(''),[arrRw,setArrRw]=useState('');
- const [keysLoaded,setKeysLoaded]=useState(false),[googleKey,setGoogleKey]=useState(''),[keyDraft,setKeyDraft]=useState(''),[sim,setSim]=useState<Sim|null>(null),[view,setView]=useState<View>({camera:0,clean:false,panel:true}),[t,setT]=useState<Telemetry|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[sound,setSound]=useState(false),[panel,setPanel]=useState<'guide'|'settings'|null>(null),[copied,setCopied]=useState(false),[connected,setConnected]=useState(true),[atcOpen,setAtcOpen]=useState(true),[toast,setToast]=useState(''),[report,setReport]=useState<{td:Touchdown;arrival:boolean}|null>(null),[crash,setCrash]=useState(''),[,tick]=useState(0);
+ const [keysLoaded,setKeysLoaded]=useState(false),[googleKey,setGoogleKey]=useState(''),[keyDraft,setKeyDraft]=useState(''),[sim,setSim]=useState<Sim|null>(null),[view,setView]=useState<View>({camera:0,clean:false,panel:false}),[t,setT]=useState<Telemetry|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[sound,setSound]=useState(false),[panel,setPanel]=useState<'guide'|'settings'|null>(null),[copied,setCopied]=useState(false),[connected,setConnected]=useState(true),[atcOpen,setAtcOpen]=useState(false),[ui,setUi]=useState({ap:false,sys:false,info:false}),[toast,setToast]=useState(''),[report,setReport]=useState<{td:Touchdown;arrival:boolean}|null>(null),[crash,setCrash]=useState(''),[,tick]=useState(0);
  const wxDep=useWeather(from,settings.weather),wxArr=useWeather(to,settings.weather);
  const live=useRef({room,session,sim,t});live.current={room,session,sim,t};const sending=useRef(false);
  const apply=useCallback((next:WorldRoom)=>{setRoom(old=>!old||old.code!==next.code||next.version>=old.version?next:old);setConnected(true);},[]);
@@ -71,12 +72,30 @@ export default function WorldApp(){
      :<label className="world-label">INVITATION CODE<input placeholder="Six-character code" maxLength={6} value={code} onChange={e=>setCode(e.target.value.toUpperCase())}/></label>}
     <button className="launch-button" disabled={busy||mode==='create'&&(!from||!to)} onClick={()=>void launch()}>{busy?'Preparing your flight…':mode==='create'?'Create shared flight':'Join this flight'}<ArrowUpRight size={18}/></button>{mode==='create'&&<button className="world-practice" disabled={busy||!from||!to} onClick={()=>void launch(true)}>Fly solo (time acceleration available) →</button>}
     {saved&&<button className="resume-flight" onClick={()=>void api('get',saved).then(async d=>{store(saved);apply(d.room);await begin(d.room);}).catch(e=>setError(e.message))}>Resume flight {saved.code}</button>}</section></>:<>
-   <section className="world-route"><p className="flight-kicker">{session?`SHARED FLIGHT ${room.code}`:'SOLO FLIGHT'}{t&&t.rate>1?` · ${t.rate}× SIM RATE`:''}</p><h2>{room.departure.iata||room.departure.id} <span>→</span> {room.arrival.iata||room.arrival.id}</h2><p>{room.arrival.name}</p>
+   {s&&<nav className="sim-toolbar" aria-label="Flight panels">
+    <button className={ui.info?'on':''} onClick={()=>setUi(u=>({...u,info:!u.info}))}>Flight</button>
+    <button className={ui.ap||ap?.master?'on':''} onClick={()=>setUi(u=>({...u,ap:!u.ap}))}>Autopilot{ap?.master?' ●':''}</button>
+    <button className={atcOpen?'on':''} onClick={()=>setAtcOpen(o=>!o)}>ATC{atcOptions.length?<small>{atcOptions.length}</small>:null}</button>
+    <button className={view.panel?'on':''} onClick={()=>setView(v=>({...v,panel:!v.panel}))}>Instruments</button>
+    <button className={ui.sys?'on':''} onClick={()=>setUi(u=>({...u,sys:!u.sys}))}>Controls</button>
+    <button onClick={()=>setView(v=>({...v,camera:(v.camera+1)%4}))}>{['Chase','Cockpit','Orbit','Tower'][view.camera]} view</button>
+   </nav>}
+   {t&&plane&&!view.clean&&view.camera!==1&&!view.panel&&<div className="flight-strip">
+    <span><small>IAS</small><b>{Math.round((plane.ias??0)/.5144)}</b><i>kt</i></span>
+    <span><small>ALT</small><b>{Math.round(t.altInd/10)*10}</b><i>ft</i></span>
+    <span><small>HDG</small><b>{String(Math.round(plane.heading)%360).padStart(3,'0')}</b><i>°</i></span>
+    <span><small>V/S</small><b>{Math.round(plane.vertical*196.85/50)*50}</b><i>fpm</i></span>
+    <span><small>{jet?'N1':a.engine==='none'?'—':'PWR'}</small><b>{a.engine==='none'?'—':Math.round((plane.n1??0)*100)}</b><i>%</i></span>
+    <span><small>FLAPS</small><b>{a.flapLabels[flapIdx]}</b></span>
+    {a.gearRetract&&<span className={(plane.gearPos??1)>.99?'ok':(plane.gearPos??1)>.01?'warn':''}><small>GEAR</small><b>{(plane.gearPos??1)>.99?'DN':(plane.gearPos??1)<.01?'UP':'···'}</b></span>}
+    <span className="phase"><small>{(t.remaining/1852).toFixed(0)} NM · {plane.gs&&plane.gs>20?fmtTime(t.remaining/plane.gs):'—'}</small><b>{ap?.copilot?'AI COPILOT':ap?.master?`AP ${shortMode(ap).lat} ${shortMode(ap).vert}`:plane.phase.split(' · ')[0]}</b></span>
+   </div>}
+   {ui.info&&<section className="world-route"><p className="flight-kicker">{session?`SHARED FLIGHT ${room.code}`:'SOLO FLIGHT'}{t&&t.rate>1?` · ${t.rate}× SIM RATE`:''}</p><h2>{room.departure.iata||room.departure.id} <span>→</span> {room.arrival.iata||room.arrival.id}</h2><p>{room.arrival.name}</p>
     <small>{plane?.phase??'LOADING'}{ap?.copilot?' · AI COPILOT':''}</small>
     {t&&plane&&<div className="route-stats"><span><b>{(t.remaining/1852).toFixed(0)}</b> NM to go</span><span><b>{plane.gs&&plane.gs>20?fmtTime(t.remaining/plane.gs):'—'}</b> ETE</span><span><b>{Math.round(plane.fuel/100*a.fuelMax)}</b> kg fuel</span><span><b>{String(Math.round(t.wind.dir)).padStart(3,'0')}°/{Math.round(t.wind.speed)}</b> kt wind</span></div>}
     {t?.wx&&<small className="wx-source">{t.wx.source}{t.wx.station?` · ${t.wx.station}`:''} · QNH {Math.round(t.wx.qnh)} · OAT {Math.round(t.oat)}°C{t.traffic?` · ${t.traffic} live aircraft nearby`:''}</small>}
-    <div className="pilot-progress">{room.names.map((n,k)=>n&&<span key={k}><i/>{n}{k===room.seat?' · you':''}</span>)}</div>{!room.names[1]&&session&&<small>Invite a companion with code {room.code}</small>}</section>
-   {ap&&i&&<section className="mcp" aria-label="Autopilot">
+    <div className="pilot-progress">{room.names.map((n,k)=>n&&<span key={k}><i/>{n}{k===room.seat?' · you':''}</span>)}</div>{!room.names[1]&&session&&<small>Invite a companion with code {room.code}</small>}</section>}
+   {ap&&i&&ui.ap&&<section className="mcp" aria-label="Autopilot">
     <button className={ap.master?'on':''} onClick={()=>set(x=>{x.ap.master=!x.ap.master;x.ap.copilot=false;if(x.ap.master){if(['TO','ROLLOUT'].includes(x.ap.lat))x.ap.lat='HDG';if(['TO','PIT','FLARE'].includes(x.ap.vert))x.ap.vert='VS';}})}>AP <kbd>P</kbd></button>
     <button className={ap.fd?'on':''} onClick={()=>set(x=>{x.ap.fd=!x.ap.fd;})}>FD</button>
     <button className={ap.athr?'on':''} onClick={()=>set(x=>{x.ap.athr=!x.ap.athr;})}>{jet?'A/THR':'A/T'} <kbd>T</kbd></button>
@@ -89,12 +108,13 @@ export default function WorldApp(){
     <button className={ap.vert==='FLC'?'on':''} onClick={()=>set(x=>{x.ap.vert='FLC';x.ap.spd=Math.round((x.ap.spd||Math.round((plane?.ias??0)/.5144)));})}>FLC</button>
     <button disabled={a.engine==='none'} title={a.engine==='none'?'Sailplanes are flown by hand':undefined} className={`copilot ${ap.copilot?'on':''}`} onClick={()=>set(x=>{x.ap.copilot=!x.ap.copilot;if(!x.ap.copilot)x.ap.master=false;else x.ap.fd=true;})}><Bot size={15}/>AI copilot <kbd>O</kbd></button>
    </section>}
-   {s&&<section className={`atc-panel ${atcOpen?'':'closed'}`}><button className="atc-head" onClick={()=>setAtcOpen(!atcOpen)}><Radio size={15}/><b>{s.atc.station().name}</b><span>{s.atc.station().f.padEnd(7,'0')}</span><kbd>M</kbd></button>
+   {s&&!atcOpen&&s.atcLines.length>0&&Date.now()-s.atcLines[s.atcLines.length-1].time<14000&&<button className="atc-ticker" onClick={()=>setAtcOpen(true)}><Radio size={13}/><b>{s.atcLines[s.atcLines.length-1].who==='pilot'?'YOU':s.atcLines[s.atcLines.length-1].station}</b><span>{s.atcLines[s.atcLines.length-1].text}</span><kbd>M</kbd></button>}
+   {s&&atcOpen&&<section className="atc-panel"><button className="atc-head" onClick={()=>setAtcOpen(!atcOpen)}><Radio size={15}/><b>{s.atc.station().name}</b><span>{s.atc.station().f.padEnd(7,'0')}</span><kbd>M</kbd></button>
     {atcOpen&&<><div className="atc-log">{s.atcLines.slice(-7).map(l=><p key={l.id} className={l.who}><b>{l.who==='pilot'?'YOU':l.station}</b>{l.text}</p>)}{!s.atcLines.length&&<p className="info">Tune in: request your clearance, then call ready for departure. Press a number key to talk.</p>}</div>
      <ol className="atc-options">{atcOptions.slice(0,9).map((o,k)=><li key={o.id}><button onClick={()=>atc(o.id)}><kbd>{k+1}</kbd>{o.label}</button></li>)}</ol></>}</section>}
    {t&&(t.warnings.length>0||t.cautions.length>0)&&<div className={`master ${t.warnings.length?'warning':'caution'}`}>{t.warnings[0]??t.cautions[0]}</div>}
-   {plane?.ground&&!plane.crashed&&!ap?.copilot&&<div className="world-takeoff-tip">{plane.airborne?'Landed. Brakes: hold Space. Reverse thrust: F (airliner).':!plane.engine?((plane.n1??0)>.02?'Engine starting…':'Press I (or Ctrl+E) to start the engine. Release the parking brake: Ctrl+.'):i?.parking?'Release the parking brake: Ctrl+. (or the PARK button)':`E / Q (or Page Up / Down) set thrust — W/A/S/D only move the controls. Hold E, then at ${vSpeeds(a,aircraftMass(a,plane.fuel)).vr} kt pull ${settings.invertPitch?'W':'S'} to lift off. Or press O to let the AI copilot fly.`}</div>}
-   {i&&<div className="world-controlbar sys-bar"><button onClick={()=>setPanel('settings')}><SlidersHorizontal size={15}/></button>
+   {plane?.ground&&!plane.crashed&&!ap?.copilot&&(t?.elapsed??0)<90&&(plane.gs??0)<30&&<div className="world-takeoff-tip">{plane.airborne?'Landed. Brakes: hold Space. Reverse thrust: F (airliner).':!plane.engine?((plane.n1??0)>.02?'Engine starting…':'Press I (or Ctrl+E) to start the engine. Release the parking brake: Ctrl+.'):i?.parking?'Release the parking brake: Ctrl+. (or the PARK button)':`E / Q (or Page Up / Down) set thrust — W/A/S/D only move the controls. Hold E, then at ${vSpeeds(a,aircraftMass(a,plane.fuel)).vr} kt pull ${settings.invertPitch?'W':'S'} to lift off. Or press O to let the AI copilot fly.`}</div>}
+   {i&&ui.sys&&<div className="world-controlbar sys-bar"><button onClick={()=>setPanel('settings')}><SlidersHorizontal size={15}/></button>
     <button className={plane?.engine?'on':''} onClick={()=>set(x=>{x.input.engine=!x.input.engine;})}>{a.engines>1?'Engines':'Engine'} {plane?.engine?'ON':(plane?.n1??0)>.02&&i.engine?'START':'OFF'} <kbd>I</kbd></button>
     <label>Thrust<input aria-label="Throttle" type="range" min="0" max="100" value={Math.round(i.throttle*100)} onChange={e=>set(x=>{x.input.throttle=Number(e.target.value)/100;x.ap.athr=false;})}/><span>{jet?`${((plane?.n1??0)*100).toFixed(0)}% N1`:`${Math.round((plane?.n1??0)*2700/10)*10} RPM`}</span></label>
     <button onClick={()=>set(x=>{x.input.flaps=det[(targetIdx+1)%det.length];})}>Flaps {a.flapLabels[flapIdx]}{targetIdx!==flapIdx?`→${a.flapLabels[targetIdx]}`:''} <kbd>V</kbd></button>

@@ -19,7 +19,7 @@ const resolveUrl=()=>tileUrl??=fetch('https://tiles.openfreemap.org/planet').the
 export class OsmScenery{private worker:Worker;private tiles=new Map<string,{prim?:Cesium.Primitive;loading:boolean;x:number;y:number}>();private pending=new Map<string,(r:Result)=>void>();private active=0;quality:'performance'|'balanced'|'high';
  constructor(private C:C,private scene:Cesium.Scene,quality:'performance'|'balanced'|'high'){this.quality=quality;this.worker=new Worker('/flight/osm-worker.js',{type:'module'});this.worker.onmessage=(e:MessageEvent<Result>)=>{this.pending.get(e.data.id)?.(e.data);this.pending.delete(e.data.id);};}
  /** Keep tiles loaded around a position; detail depends on height above ground. */
- update(lat:number,lon:number,agl:number){const n=2**Z,fx=(lon+180)/360*n,fy=(1-Math.asinh(Math.tan(lat*Math.PI/180))/Math.PI)/2*n,x0=Math.floor(fx),y0=Math.floor(fy),radius=agl>3500?0:this.quality==='high'&&agl<1800?2:1,want=new Set<string>();
+ update(lat:number,lon:number,agl:number,single=false){const n=2**Z,fx=(lon+180)/360*n,fy=(1-Math.asinh(Math.tan(lat*Math.PI/180))/Math.PI)/2*n,x0=Math.floor(fx),y0=Math.floor(fy),radius=single||agl>3500?0:this.quality==='high'&&agl<1800?2:1,want=new Set<string>();
   if(agl<6000)for(let dy=-radius;dy<=radius;dy++)for(let dx=-radius;dx<=radius;dx++){if(dx*dx+dy*dy>radius*radius+1)continue;const x=((x0+dx)%n+n)%n,y=y0+dy,k=`${x}/${y}`;want.add(k);if(!this.tiles.has(k))this.tiles.set(k,{loading:false,x,y});}
   // Nearest tiles first, two at a time, so the area under the aircraft fills in quickly.
   const queue=[...this.tiles.entries()].filter(([k,t])=>want.has(k)&&!t.prim&&!t.loading).sort((a,b)=>Math.hypot(a[1].x+.5-fx,a[1].y+.5-fy)-Math.hypot(b[1].x+.5-fx,b[1].y+.5-fy));

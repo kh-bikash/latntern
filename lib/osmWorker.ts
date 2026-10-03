@@ -24,19 +24,19 @@ self.onmessage=async(ev:MessageEvent<Req>)=>{const r=ev.data;try{
  const flat=(poly:{x:number;y:number}[][],extent:number,z:(x:number,y:number)=>number,b:Bucket)=>{const coords:number[]=[],holes:number[]=[],pts:number[][]=[];for(const ring of poly){if(coords.length)holes.push(coords.length/2);for(const p of ring.slice(0,-1)){const [x,y]=local(p,extent);coords.push(x,y);pts.push([x,y,z(p.x,p.y)]);}}
   const idx=earcut(coords,holes);for(let i=0;i<idx.length;i+=3)tri(b,pts[idx[i]],pts[idx[i+2]],pts[idx[i+1]],0,0,1);};
  if(r.buildings&&tile.layers.building){const L=tile.layers.building,ext=L.extent;let count=0;
-  for(let f=0;f<L.length&&count<30000;f++){const feat=L.feature(f),pr=feat.properties as Record<string,number|string>;if(feat.type!==3)continue;const top=Number(pr.render_height??0),min=Number(pr.render_min_height??0);if(!(top>1.5))continue;
+  for(let f=0;f<L.length&&count<16000;f++){const feat=L.feature(f),pr=feat.properties as Record<string,number|string>;if(feat.type!==3)continue;const top=Number(pr.render_height??0),min=Number(pr.render_min_height??0);if(!(top>1.5))continue;
    const h=hash(f*7919+r.x*31+r.y),wall=WALLS[h%WALLS.length],roof=ROOFS[(h>>>4)%ROOFS.length],height=Math.max(top,3);
-   for(const poly of polygons(feat.loadGeometry() as {x:number;y:number}[][])){count++;let base=Infinity;for(const p of poly[0])base=Math.min(base,ground(p.x,p.y,ext));if(!Number.isFinite(base))base=0;
+   for(const poly of polygons(feat.loadGeometry() as {x:number;y:number}[][])){const footprint=Math.abs(area(poly[0]))/2*(W/ext)**2;if(footprint<35&&height<7)continue;count++;let base=Infinity;for(const p of poly[0])base=Math.min(base,ground(p.x,p.y,ext));if(!Number.isFinite(base))base=0;
     const zTop=base+height,zBot=min>0?base+min:base-1.5,wb=bucket(wall),rb=bucket(roof);
     const vb=zBot-base,vt=zTop-base;for(const ring of poly){const s=Math.sign(area(ring));let along=0;for(let i=0;i<ring.length-1;i++){const [x1,y1]=local(ring[i],ext),[x2,y2]=local(ring[i+1],ext),dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy);if(len<.05)continue;const nx=dy/len*-s,ny=-dx/len*-s,u0=along,u1=along+len;along=u1;
      tri(wb,[x1,y1,zBot],[x2,y2,zBot],[x2,y2,zTop],nx,ny,0,[u0,vb,u1,vb,u1,vt]);tri(wb,[x1,y1,zBot],[x2,y2,zTop],[x1,y1,zTop],nx,ny,0,[u0,vb,u1,vt,u0,vt]);}}
     flat(poly,ext,()=>zTop,rb);}}}
  if(r.trees&&tile.layers.landcover){const L=tile.layers.landcover,ext=L.extent,rand=rng(r.x*73856093^r.y*19349663);let placed=0;const mPerUnit=W/ext;
-  for(let f=0;f<L.length&&placed<9000;f++){const feat=L.feature(f),pr=feat.properties as Record<string,string>;if(feat.type!==3)continue;const dense=pr.class==='wood'?1:pr.class==='grass'&&(pr.subclass==='park'||pr.subclass==='garden')?.18:0;if(!dense)continue;
+  for(let f=0;f<L.length&&placed<4500;f++){const feat=L.feature(f),pr=feat.properties as Record<string,string>;if(feat.type!==3)continue;const dense=pr.class==='wood'?1:pr.class==='grass'&&(pr.subclass==='park'||pr.subclass==='garden')?.18:0;if(!dense)continue;
    for(const poly of polygons(feat.loadGeometry() as {x:number;y:number}[][])){let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;for(const p of poly[0]){x0=Math.min(x0,p.x);y0=Math.min(y0,p.y);x1=Math.max(x1,p.x);y1=Math.max(y1,p.y);}
     const areaM=Math.abs(area(poly[0]))/2*mPerUnit*mPerUnit,want=Math.min(2500,Math.round(areaM/260*dense));
     const inside=(x:number,y:number)=>{let c=false;for(const ring of poly)for(let i=0,j=ring.length-1;i<ring.length;j=i++)if((ring[i].y>y)!==(ring[j].y>y)&&x<(ring[j].x-ring[i].x)*(y-ring[i].y)/(ring[j].y-ring[i].y)+ring[i].x)c=!c;return c;};
-    for(let k=0,tries=0;k<want&&tries<want*3&&placed<9000;tries++){const px=x0+rand()*(x1-x0),py=y0+rand()*(y1-y0);if(!inside(px,py))continue;k++;placed++;
+    for(let k=0,tries=0;k<want&&tries<want*3&&placed<4500;tries++){const px=x0+rand()*(x1-x0),py=y0+rand()*(y1-y0);if(!inside(px,py))continue;k++;placed++;
      const [x,y]=local({x:px,y:py},ext),g=ground(px,py,ext),ht=7+rand()*10,rad=ht*(.22+rand()*.1),b=bucket(TREES[Math.floor(rand()*TREES.length)]),seg=6,a0=rand()*Math.PI;
      for(const [z0,z1,r0] of [[g+ht*.18,g+ht*.72,rad],[g+ht*.5,g+ht,rad*.62]]){const tip=[x,y,z1];for(let s=0;s<seg;s++){const a1=a0+s/seg*Math.PI*2,a2=a0+(s+1)/seg*Math.PI*2,p1=[x+Math.cos(a1)*r0,y+Math.sin(a1)*r0,z0],p2=[x+Math.cos(a2)*r0,y+Math.sin(a2)*r0,z0],am=(a1+a2)/2,k2=r0/(z1-z0);tri(b,p1,p2,tip,Math.cos(am),Math.sin(am),k2);}}}}}}
  if(tile.layers.aeroway){const L=tile.layers.aeroway,ext=L.extent,apron=bucket([.52,.52,.5]),taxi=bucket([.3,.31,.32]),line=bucket([.95,.75,.12]);
