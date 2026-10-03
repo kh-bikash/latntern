@@ -18,7 +18,7 @@ A browser flight simulator on a streaming Earth: a six-degree-of-freedom aerodyn
 
 ## Controls
 
-W/S or ↑/↓ pitch · A/D or ←/→ roll · Z/X rudder · Q/E thrust · I engines (Ctrl+E auto-start) · V/Shift+V flaps · G gear · / spoilers · F reverse · Space brakes · Ctrl+. parking brake · [ ] trim · P autopilot · T autothrottle · O AI copilot · B altimeter QNH · M ATC window, 1–9 to talk · C view (chase, cockpit, orbit, tower) · U instrument panel · H HUD · +/− sim rate (solo) · R recover · Esc settings. Gamepads and touch are supported.
+W/S or ↑/↓ pitch (S raises the nose; invertible in settings) · A/D or ←/→ roll · Z/X rudder · **E/Q or Page Up/Down thrust** (W/A/S/D never add power) · I engines (Ctrl+E auto-start) · V/Shift+V flaps · G gear · / spoilers · F reverse · Space brakes · Ctrl+. parking brake · [ ] trim · P autopilot · T autothrottle · O AI copilot · B altimeter QNH · M ATC window, 1–9 to talk · C view (chase, cockpit, orbit, tower) · U instrument panel · H HUD · +/− sim rate (solo) · R recover · Esc settings. Gamepads and touch are supported.
 
 ## Limits
 
