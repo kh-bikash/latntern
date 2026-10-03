@@ -25,12 +25,12 @@ function lift(a:AircraftSpec,alpha:number,flaps:number,spoilers:number){const as
  if(alpha>as)return Math.max(max*(1-2.4*(alpha-as)),Math.sin(2*alpha)*.95);if(alpha<neg)return Math.min((a.cl0+a.cla*neg)*(1-2.4*(neg-alpha)),Math.sin(2*alpha)*.95);return Math.min(max,base+a.cla*alpha);}
 /** Engine spool and thrust. Returns thrust (N, body x) and fuel flow (kg/s). */
 function engine(a:AircraftSpec,s:FlightState,i:FlightInput,dt:number,V:number,mach:number,sigma:number){
- const wantsRun=i.engine&&s.fuel>0;let n1=s.n1??0;const thr=clamp(i.throttle,0,1);
- if(wantsRun){if(n1<a.idle*.97)n1+=dt*(a.engine==='jet'?.012:.16);else{const target=a.idle+(1-a.idle)*thr;n1+=(target-n1)*Math.min(1,dt*(a.engine==='jet'?.32+1.3*Math.max(0,n1-a.idle):3.2));}}
- else n1=Math.max(0,n1-dt*(a.engine==='jet'?.035:.45));
+ if(a.engine==='none'){s.n1=0;return{T:0,ff:0,running:false};}const wantsRun=i.engine&&s.fuel>0,tp=a.engine==='turboprop';let n1=s.n1??0;const thr=clamp(i.throttle,0,1);
+ if(wantsRun){if(n1<a.idle*.97)n1+=dt*(a.engine==='jet'?.012:tp?.02:.16);else{const target=a.idle+(1-a.idle)*thr;n1+=(target-n1)*Math.min(1,dt*(a.engine==='jet'?.32+1.3*Math.max(0,n1-a.idle):tp?1.1:3.2));}}
+ else n1=Math.max(0,n1-dt*(a.engine==='piston'?.45:.035));
  s.n1=n1;const running=wantsRun&&n1>=a.idle*.95,frac=n1<a.idle?.04*n1/a.idle:.04+.96*(a.engine==='jet'?Math.pow((n1-a.idle)/(1-a.idle),1.6):(n1-a.idle)/(1-a.idle));
- if(!running)return{T:a.engine==='piston'&&n1<.05?-.5*1.225*sigma*V*V*.12*a.engines:0,ff:0,running};
- if(a.engine==='piston'){const alt=Math.max(0,1.132*sigma-.132),P=a.power*a.engines*frac*alt,Ts=a.staticThrust*a.engines*frac*Math.sqrt(sigma),Vx=a.propEff*P/Math.max(1,Ts),T=P>0?a.propEff*P/Math.sqrt(V*V+Vx*Vx):0;return{T,ff:a.fuelFlow*a.engines*(.08+.92*frac)*Math.max(.3,alt),running};}
+ if(!running)return{T:a.engine!=='jet'&&n1<.05?-.5*1.225*sigma*V*V*.12*a.engines:0,ff:0,running};
+ if(a.engine!=='jet'){const alt=tp?Math.min(1,1.18*Math.pow(sigma,.75)):Math.max(0,1.132*sigma-.132),P=a.power*a.engines*frac*alt,Ts=a.staticThrust*a.engines*frac*Math.sqrt(sigma),Vx=a.propEff*P/Math.max(1,Ts),T0=P>0?a.propEff*P/Math.sqrt(V*V+Vx*Vx):0,T=tp&&i.reverse&&s.ground?-.35*T0:T0;return{T,ff:a.fuelFlow*a.engines*(tp?.25+.75*frac:.08+.92*frac)*Math.max(.3,alt),running};}
  let T=a.thrust*a.engines*frac*Math.pow(sigma,.85)*(1-.55*mach+.25*mach*mach);const ff=a.engines*(.015+T/a.engines*1e-5*(1+.55*mach));if(i.reverse&&s.ground)T=-.45*T;return{T,ff,running};}
 export function stepFlight(s:FlightState,dtTotal:number,i:FlightInput,env:FlightEnv):StepEvent{
  const ev:StepEvent={};if(s.crashed){s.speed=0;s.engine=false;s.vn=s.ve=s.vd=0;s.p=s.q=s.r=0;return ev;}
@@ -44,8 +44,8 @@ function sub(s:FlightState,a:AircraftSpec,dt:number,i:FlightInput,env:FlightEnv,
  // Turbulence: first-order filtered gusts, stronger near the ground and in convective weather.
  const L=s.law,turb=(wx?.turbulence??0)*(agl<500?1.6:1)*(s.ground?.3:1),sig=turb*2.4,tau=1.4;for(const k of ['gn','ge','gd'] as const)L[k]=(L[k]??0)+(-(L[k]??0)/tau*dt+(sig?sig*Math.sqrt(2*dt/tau)*gauss()*(k==='gd'?.7:1):0));L.gp=(L.gp??0)*(1-dt/.6)+(sig?sig*.012*Math.sqrt(dt)*gauss():0);
  // Systems: flaps, gear and spoilers move at realistic rates; gear cannot retract with weight on wheels.
- const flapTarget=clamp(i.flaps,0,1);s.flaps+=clamp(flapTarget-s.flaps,-dt*(a.engine==='jet'?.06:.18),dt*(a.engine==='jet'?.06:.18));
- const gearWanted=a.gearRetract?(s.ground?true:i.gear):true;s.gear=gearWanted;s.gearPos=clamp(s.gearPos+(gearWanted?1:-1)*dt/(a.engine==='jet'?9:6),0,1);
+ const flapTarget=clamp(i.flaps,0,1);const big=a.mtow>15000;s.flaps+=clamp(flapTarget-s.flaps,-dt*(big?.06:.18),dt*(big?.06:.18));
+ const gearWanted=a.gearRetract?(s.ground?true:i.gear):true;s.gear=gearWanted;s.gearPos=clamp(s.gearPos+(gearWanted?1:-1)*dt/(big?9:6),0,1);
  const autoSpoiler=a.clSpoiler>0&&s.ground&&clamp(i.throttle,0,1)<.08&&(s.airborne||s.speed>36)&&s.speed>10;s.spoilers+=clamp((autoSpoiler?1:clamp(i.spoilers??0,0,1))-s.spoilers,-dt*1.5,dt*1.5);
  // Attitude rotation matrix (body → NED).
  const psi=s.heading*rad,th=s.pitch,ph=s.roll,cps=Math.cos(psi),sps=Math.sin(psi),cth=Math.cos(th),sth=Math.sin(th),cph=Math.cos(ph),sph=Math.sin(ph);
@@ -64,8 +64,8 @@ function sub(s:FlightState,a:AircraftSpec,dt:number,i:FlightInput,env:FlightEnv,
  const sa=Math.sin(alpha),ca=Math.cos(alpha),X=qbar*a.S*(CL*sa-CD*ca)+T,Y=qbar*a.S*CY,Z=qbar*a.S*(-CL*ca-CD*sa);
  let Lm=qbar*a.S*a.b*Cl,Mm=qbar*a.S*a.c*Cm,Nm=qbar*a.S*a.b*Cn-a.pFactor*Math.max(0,T);
  const F=[0,1,2].map(k=>xb[k]*X+yb[k]*Y+zb[k]*Z),acc=[F[0]/mass,F[1]/mass,F[2]/mass+G];
- s.nz=-Z/(mass*G);s.aoa=alpha;s.beta=beta;s.mach=mach;s.ias=V*Math.sqrt(atm.sigma);s.ff=ff*3600;s.reverse=!!i.reverse&&s.ground&&a.engine==='jet';
- if(!i.unlimitedFuel)s.fuel=clamp(s.fuel-ff*dt/a.fuelMax*100,0,100);
+ s.nz=-Z/(mass*G);s.aoa=alpha;s.beta=beta;s.mach=mach;s.ias=V*Math.sqrt(atm.sigma);s.ff=ff*3600;s.reverse=!!i.reverse&&s.ground&&(a.engine==='jet'||a.engine==='turboprop');
+ if(!i.unlimitedFuel&&a.fuelMax>0)s.fuel=clamp(s.fuel-ff*dt/a.fuelMax*100,0,100);
  const [Ixx,Iyy,Izz]=a.I,contact=contactHeight(a,s.pitch,s.gearPos);
  if(s.ground){
   // Wheels on the ground: vertical constraint, pitch about the main gear, nose-wheel steering, friction and brakes.
@@ -74,11 +74,11 @@ function sub(s:FlightState,a:AircraftSpec,dt:number,i:FlightInput,env:FlightEnv,
   else{
    let brake=typeof i.brake==='number'?clamp(i.brake,0,1):i.brake?1:0;if(i.parking)brake=1;
    if(!brake&&i.autobrake&&s.airborne&&i.throttle<.1&&fwd>3){const want=[0,1.8,3,5.5][i.autobrake]??0,decel=-(acc[0]*fwdU[0]+acc[1]*fwdU[1]);brake=clamp((want-decel)/(a.brakeMu*G),0,1);}
-   s.brakes=brake;const roll=(a.engine==='jet'?.015:.025)+a.brakeMu*brake,along=acc[0]*fwdU[0]+acc[1]*fwdU[1],resist=roll*normal/mass;
+   s.brakes=brake;const roll=(big?.015:.025)+a.brakeMu*brake,along=acc[0]*fwdU[0]+acc[1]*fwdU[1],resist=roll*normal/mass;
    if(Math.abs(fwd)<.15&&Math.abs(along)<=resist)fwd=0;else fwd+=(along-Math.sign(fwd||along)*resist)*dt;
    lat+=(acc[0]*latU[0]+acc[1]*latU[1])*dt*.15;lat*=Math.max(0,1-dt*9);
    s.vn=fwd*fwdU[0]+lat*latU[0];s.ve=fwd*fwdU[1]+lat*latU[1];s.vd=0;
-   const steer=clamp(ctl.rud+i.roll*.6,-1,1),maxSteer=(a.engine==='jet'?70:32)*rad*(1-clamp(Math.abs(fwd)/30,0,.85)),rTarget=fwd*Math.tan(steer*maxSteer)/a.wheelbase+a.cnb*beta*qbar*a.S*a.b/Izz*.08;s.r+=(rTarget-s.r)*Math.min(1,dt*5);
+   const steer=clamp(ctl.rud+i.roll*.6,-1,1),maxSteer=(big?70:32)*rad*(1-clamp(Math.abs(fwd)/30,0,.85)),rTarget=fwd*Math.tan(steer*maxSteer)/a.wheelbase+a.cnb*beta*qbar*a.S*a.b/Izz*.08;s.r+=(rTarget-s.r)*Math.min(1,dt*5);
    const mGround=-normal*a.mainArm*Math.cos(s.pitch);let qd=(Mm+mGround)/Iyy;if(s.pitch<=a.staticPitch&&qd<0){qd=0;s.q=Math.max(0,s.q);}s.q+=qd*dt;s.q*=Math.max(0,1-dt*1.5);s.pitch=Math.max(a.staticPitch,s.pitch+s.q*dt);if(s.pitch<=a.staticPitch)s.q=Math.max(0,s.q);
    if(s.pitch>=a.tailStrike){s.pitch=a.tailStrike;s.q=Math.min(0,s.q);s.tailStrike=true;}
    s.p=0;s.roll*=Math.max(0,1-dt*6);s.alt=floor+contactHeight(a,s.pitch,s.gearPos);
@@ -104,8 +104,8 @@ function sub(s:FlightState,a:AircraftSpec,dt:number,i:FlightInput,env:FlightEnv,
   const crash=(why:string)=>{s.crashed=why;s.phase=`CRASH · ${why}`;s.alt=floor+contact;s.ground=true;s.engine=false;s.n1=0;ev.crash=why;};
   if(s.gearPos<.95)crash('GEAR-UP LANDING');
   else if(!rw&&env.water)crash('DITCHED IN WATER');
-  else if(bank>(a.engine==='jet'?11:16))crash(a.engine==='jet'?'WING / ENGINE STRIKE':'WINGTIP STRIKE');
-  else if(sink>(a.engine==='jet'?4.6:5.2))crash('STRUCTURAL FAILURE · HARD IMPACT');
+  else if(bank>(big?11:a.engine==='none'?25:16))crash(big?'WING / ENGINE STRIKE':'WINGTIP STRIKE');
+  else if(sink>(big?4.6:5.2))crash('STRUCTURAL FAILURE · HARD IMPACT');
   else if(crab>25&&gs>20)crash('LANDING GEAR COLLAPSE · SIDE LOAD');
   else if(!rw&&(a.id!=='trainer'||gs>38||sink>2.6))crash('TERRAIN IMPACT · OFF RUNWAY');
   else{const g=1+sink*sink/(2*G*.32),rating=sink<1?'BUTTER':sink<1.8?'SMOOTH':sink<3?'FIRM':'HARD';ev.touchdown={fpm:Math.round(fpm),g:Math.round(g*100)/100,bank:Math.round(bank*10)/10,pitch:Math.round(s.pitch/rad*10)/10,crab:Math.round(crab*10)/10,speed:Math.round((s.ias??V)/.5144),centerline:off?Math.round(off.cross*10)/10:null,fromThreshold:off?Math.round(off.along):null,rating,time:Date.now()};

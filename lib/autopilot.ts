@@ -74,12 +74,12 @@ function copilot(s:FlightState,a:AircraftSpec,ap:Autopilot,plan:FlightPlan|null,
  if(!plan)return;const jet=a.engine==='jet',dep=plan.departure,arr=plan.arrival,agl=s.alt-Math.max(ground,s.ground?ground:0),flaps=a.flapDetents,remaining=planRemaining(s,plan),toIF=(()=>{let d=0,prev={lat:s.lat,lon:s.lon};const k=plan.waypoints.findIndex(w=>w.id==='IF');if(k<plan.active)return 0;for(let j=plan.active;j<=k;j++){d+=geoDistance(prev,plan.waypoints[j]);prev=plan.waypoints[j];}return d;})();
  const g=glidePath(s,arr),final=plan.waypoints.find(w=>w.id==='IF')!;
  // Take-off roll.
- if(s.ground&&!s.airborne){ap.stage='TAKEOFF';ap.lat='TO';ap.vert='TO';ap.master=true;out.flaps=flaps[1]??0;out.gear=true;out.spoilers=0;const g0=glidePath(s,{...dep});
+ if(s.ground&&!s.airborne){ap.stage='TAKEOFF';ap.lat='TO';ap.vert='TO';ap.master=true;out.flaps=flaps[a.toFlap]??0;out.gear=true;out.spoilers=0;const g0=glidePath(s,{...dep});
   out.throttle=1;out.brake=0;const steer=clamp(angleDiff(dep.heading+clamp(-g0.cross*2,-15,15),s.heading)*.12,-1,1);const rotate=ias>=v.vr;out.targets={rud:steer,elev:rotate?(s.pitch<(jet?12:9)*rad?(jet?.42:.45):0):(jet?0:-.05)};ap.message=rotate?'Rotate':ias>40?`${Math.round(ias)} kt`:'Take-off thrust set';return;}
  if(ap.stage==='TAKEOFF'||ap.stage==='INITIAL CLIMB'){ap.stage='INITIAL CLIMB';ap.lat='HDG';ap.hdg=dep.heading;ap.vert='FLC';ap.spd=jet?v.v2+15:a.vy;ap.alt=Math.max(ap.alt,plan.cruiseFt);ap.athr=jet;out.throttle=jet?undefined:1;if(s.vertical>1.5&&agl>12)out.gear=false;
   if(agl>(jet?300:150)){ap.stage='CLIMB';ap.lat='NAV';}return;}
  if(['CLIMB','CRUISE'].includes(ap.stage)){ap.lat='NAV';ap.athr=jet;out.gear=false;const climbSpd=jet?(alt<10000?250:Math.min(290,v.green+100)):a.climbIas;
-  if(jet&&ias>v.green-5)out.flaps=0;else if(jet&&ias>(v.v2+25))out.flaps=flaps[1];else if(!jet&&ias>a.vy-10)out.flaps=0;
+  if(jet&&ias>v.green-5)out.flaps=0;else if(jet&&ias>(v.v2+25))out.flaps=flaps[Math.min(1,a.toFlap)];else if(!jet&&ias>a.vy-10)out.flaps=0;
   const descentDist=Math.max(0,(alt-(final.alt!/ftm))/(jet?300:450))*1852+(jet?18000:5000);
   if(toIF<descentDist&&remaining>0){ap.stage='DESCENT';}
   else{if(ap.stage==='CLIMB'&&Math.abs(plan.cruiseFt-alt)<150)ap.stage='CRUISE';ap.alt=plan.cruiseFt;if(ap.vert!=='ALT'&&ap.vert!=='ALTS')ap.vert='FLC';ap.spd=ap.stage==='CRUISE'?(jet?Math.min(290,a.cruiseIas):a.cruiseIas):climbSpd;if(!jet)out.throttle=ap.stage==='CRUISE'?.78:1;

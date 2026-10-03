@@ -69,3 +69,15 @@ Airports and runways: OurAirports (public domain).
 Aircraft: the twin uses the Cesium Air sample model (see models/CESIUM-LICENSE.md). The Kestrel T-180 trainer and NB-200 airliner models, liveries and cockpit displays are original procedural work. Aircraft names, call signs and ATC frequencies are fictional.
 Sound: engines, warnings and touchdown are synthesized; voices use the browser's speech engine.
 Not for real-world navigation.
+
+HINODE FLIGHT SIMULATOR 5.1 — fleet, 3D scenery and cockpits
+Aircraft exterior models (A220, A320, A321, A330, A350, A380, 737-800, 747-400, 757-200, 777-300, 787-9,
+CRJ900, E190, Citation II, ATR 42, Dash 8 Q400, PA-28, ASK 21): Flightradar24 3D models
+(https://github.com/Flightradar24/fr24-3d-models), originally from the FlightGear project and FGMEMBERS,
+GNU GPL v2. Converted to glTF 2.0 and compressed; see models/fr24/README.txt and LICENSE.
+3D buildings, forests, aprons and taxiways: © OpenStreetMap contributors (ODbL), served as OpenMapTiles
+vector tiles by OpenFreeMap (https://openfreemap.org). Geometry is generated in the browser.
+Optional photorealistic world: Google Photorealistic 3D Tiles, used only with the player's own
+Google Maps Platform API key and shown with Google's on-screen attribution.
+Cockpits, facade shading and clouds are original procedural work.
+Libraries: CesiumJS, three.js, pbf, @mapbox/vector-tile, earcut, gltf-pipeline and gltf-transform (build time).

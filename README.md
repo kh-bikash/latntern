@@ -1,4 +1,4 @@
-# HINODE — Flight Simulator 5.0
+# HINODE — Flight Simulator 5.1
 
 A browser flight simulator on a streaming Earth: a six-degree-of-freedom aerodynamic flight model, three aircraft, live weather, live air traffic, ATC with voice, autopilot and autoland, at 72,603 real airports. Fly solo with time acceleration or share a flight with a second pilot.
 
@@ -7,14 +7,20 @@ A browser flight simulator on a streaming Earth: a six-degree-of-freedom aerodyn
 ## What is simulated
 
 - **Flight dynamics** (`lib/flightModel.ts`): rigid-body 6-DOF integration at 120 Hz on a spherical Earth with meridian convergence. Lift/drag polars with flaps, slats, spoilers, ground effect, post-stall break and wing drop; stability and control derivatives; moments of inertia; quaternion attitude. Ground contact with rotation about the main gear, nose-wheel steering, rolling friction, brakes, autobrake, reversers and tail-strike limits.
-- **Aircraft** (`lib/aircraft.ts`): Kestrel T-180 (180 hp trainer), Cesium Air Twin (2 × 300 hp, retractable gear) and Hinode NB-200 (A320-class twin-jet, 2 × 120 kN, fly-by-wire with alpha and bank protection). Tested against published-class figures: takeoff roll, climb rate, top speed and stall speed.
+- **Aircraft** (`lib/aircraft.ts`): 20 types in eight classes — Kestrel T-180, PA-28, ASK 21 glider, piston twin, Citation II, ATR 42, Dash 8 Q400, CRJ900, E190, A220-300, A320, A321, 737-800, 757-200, A330-300, 787-9, 777-300, A350-900, 747-400 and A380. Published masses, wing geometry, thrust/power, speeds and flap detents; class-based stability derivatives; fly-by-wire on the Airbus, E-Jet, 777 and 787. Every powered type completes an automated takeoff-to-autoland flight in the test suite. Exterior models are the GPL Flightradar24/FlightGear models (see public/flight/models/fr24).
 - **Engines**: propeller thrust from power with altitude lapse; turbofans with N1 spool lag, density and Mach lapse and realistic fuel flow. Fuel burn changes weight and range.
 - **Atmosphere and weather** (`lib/weather.ts`): ISA with real temperature and QNH, a working altimeter (B sets QNH), live METARs (NOAA AWC) and winds aloft (Open-Meteo), turbulence and gusts, wind shear near the ground. Presets from clear to thunderstorms, fog and snow.
 - **Autopilot** (`lib/autopilot.ts`): AP/FD, HDG, NAV (GPS route with intermediate fixes), APR (localizer + glideslope), ALT, V/S, FLC, autothrottle, flare and rollout. The AI copilot (O) flies a complete departure, cruise, descent, ILS approach, autoland and go-around.
 - **ATC** (`lib/atc.ts`): clearance delivery, tower, departure, centre hand-offs, top-of-descent, approach with ILS clearance, landing clearance, ground; altitude-deviation calls and traffic advisories from live ADS-B traffic. Standard phraseology, spoken by the browser speech engine.
 - **World**: Sentinel-2 cloudless global imagery with national orthophotos (USGS, IGN, swisstopo, PDOK, GSI), night city lights, ocean water mask, flattened airports, textured runways with ICAO markings, edge/threshold/approach lights and a working PAPI, METAR-driven cloud layers, visibility fog, rain, snow and lightning, real time of day.
 - **Cockpit**: glass PFD (tapes, V-speed bugs, FMA, flight director, ILS deviation, flight-path vector), navigation display (route, airports, TCAS-style traffic, wind) and engine/systems page, also painted in the 3D cockpit. GPWS and radio-altitude callouts, stall horn, gear horn, overspeed clacker.
-- **Live traffic**: real aircraft around you from adsb.lol, drawn in 3D and on the ND.
+- **Live traffic**: real aircraft around you from adsb.lol, drawn with the matching type model and on the ND.
+- **3D scenery**: OpenStreetMap buildings at their mapped heights with windowed facades that light up at night, forests, aprons and taxiways, streamed from OpenFreeMap vector tiles and built in a web worker.
+- **Cockpits**: modelled airliner flight deck (glareshield FCU, two PFD/ND pairs, upper and lower ECAM, thrust levers, sidestick or yoke, overhead panel), light-aircraft G1000-style panel, glider instruments.
+
+## Photorealistic world (optional)
+
+Settings → *Photorealistic 3D world* accepts a Google Maps Platform API key with the Map Tiles API enabled. The world then uses Google Photorealistic 3D Tiles (real 3D cities and terrain); airport offsets between sea-level elevations and the photogrammetry are measured so aircraft sit on the real runway surface. The key is stored only in the player's browser; restrict it to your domain. Without a key the open-data world is used.
 
 ## Controls
 

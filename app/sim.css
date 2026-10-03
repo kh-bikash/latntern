@@ -41,3 +41,10 @@
 .world-clean .mcp,.world-clean .atc-panel{display:none}
 @media(max-width:760px){.sys-bar{left:15px!important;right:15px!important;bottom:65px!important;max-width:none}.world-flying .world-takeoff-tip{top:auto;bottom:250px}}
 @media(max-width:760px){.world-flying .world-route{display:none}.atc-panel{top:128px!important;bottom:auto!important}.atc-log{max-height:90px}.world-flying .world-takeoff-tip{display:none}.sys-bar kbd{display:none}}
+.fleet{margin:4px 0 8px}.fleet-tabs{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}.fleet-tabs button{background:#1a3442;border:1px solid #ffffff1c;border-radius:14px;padding:5px 10px;font-size:10px;display:flex;gap:6px;align-items:center}.fleet-tabs button small{font-size:9px;color:#9fb7bf}.fleet-tabs button.active{background:#f2d28b;color:#0f2532!important;border-color:#f2d28b}.fleet-tabs button.active small{color:#33505e}
+.fleet .aircraft-cards{grid-template-columns:repeat(2,1fr)}.fleet .aircraft-cards button{min-height:0;padding:9px 10px}
+.fleet-detail{background:#0d2330;border:1px solid #ffffff14;border-radius:4px;padding:9px 10px;margin-top:8px}.fleet-detail p{font-size:11px;line-height:1.5;color:#cfe0e5;margin:0 0 8px}.fleet-detail div{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:10px;color:#9fb7bf}.fleet-detail b{font:600 12px "Roboto Mono",monospace;color:#f6efdf;margin-right:3px}
+.world-loading.soft{background:#122e39aa;pointer-events:none}
+@media(max-width:760px){.fleet .aircraft-cards{grid-template-columns:1fr}}
+.cam-cockpit .world-route,.cam-cockpit .world-takeoff-tip{display:none}
+.photoreal{display:flex;flex-direction:column;gap:8px;padding:12px 0;border-bottom:1px solid #ffffff1a}.photoreal small{display:block;font-size:10px;color:#9fb7bf;line-height:1.5;margin-top:3px}.photoreal a{color:#f2d28b}.photoreal>div{display:flex;gap:6px}.photoreal input{flex:1;background:#213b48;color:#f6efdf;border:1px solid #ffffff28;border-radius:3px;padding:8px;font-size:12px}.photoreal button{background:#f2d28b;color:#0f2532!important;border:0;border-radius:3px;padding:8px 12px;font-size:11px;font-weight:600}

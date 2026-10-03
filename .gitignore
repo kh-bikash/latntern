@@ -7,3 +7,4 @@ outputs/
 !.env.example
 *.tsbuildinfo
 next-env.d.ts
+public/flight/osm-worker.js
