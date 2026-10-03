@@ -1,20 +1,28 @@
-# HINODE — World Flight 4.0
+# HINODE — Flight Simulator 5.0
 
-A cooperative browser flight game with a streaming Earth, worldwide airport planning, runway takeoff and landing, and a Japanese expedition.
+A browser flight simulator on a streaming Earth: a six-degree-of-freedom aerodynamic flight model, three aircraft, live weather, live air traffic, ATC with voice, autopilot and autoland, at 72,603 real airports. Fly solo with time acceleration or share a flight with a second pilot.
 
 **Play:** https://lantern-relay-ten.vercel.app/
 
-## World flight
+## What is simulated
 
-- Search 72,603 active OurAirports records by airport, city, country, IATA or ICAO.
-- Continuous geographic travel at 1× speed on the Earth, with streamed Mapzen elevation, NASA global imagery and GSI Japan photography.
-- Two authenticated pilot seats, invitations, saved poses, fuel and independent recovery.
-- Runway taxiing, engine start/stop, takeoff rotation, gear, flaps, trim, fuel consumption, banked turns, stalls, touchdown checks and ground braking.
-- Optional guided departure/navigation and approach/landing, with manual steering override.
-- Sourced Cesium Air twin-prop model, animated propellers, original modeled cockpit, working instruments and GPS readouts.
-- Daylight preset or real clock, touch controls, standard gamepad support, look-around cockpit and clear HUD view.
+- **Flight dynamics** (`lib/flightModel.ts`): rigid-body 6-DOF integration at 120 Hz on a spherical Earth with meridian convergence. Lift/drag polars with flaps, slats, spoilers, ground effect, post-stall break and wing drop; stability and control derivatives; moments of inertia; quaternion attitude. Ground contact with rotation about the main gear, nose-wheel steering, rolling friction, brakes, autobrake, reversers and tail-strike limits.
+- **Aircraft** (`lib/aircraft.ts`): Kestrel T-180 (180 hp trainer), Cesium Air Twin (2 × 300 hp, retractable gear) and Hinode NB-200 (A320-class twin-jet, 2 × 120 kN, fly-by-wire with alpha and bank protection). Tested against published-class figures: takeoff roll, climb rate, top speed and stall speed.
+- **Engines**: propeller thrust from power with altitude lapse; turbofans with N1 spool lag, density and Mach lapse and realistic fuel flow. Fuel burn changes weight and range.
+- **Atmosphere and weather** (`lib/weather.ts`): ISA with real temperature and QNH, a working altimeter (B sets QNH), live METARs (NOAA AWC) and winds aloft (Open-Meteo), turbulence and gusts, wind shear near the ground. Presets from clear to thunderstorms, fog and snow.
+- **Autopilot** (`lib/autopilot.ts`): AP/FD, HDG, NAV (GPS route with intermediate fixes), APR (localizer + glideslope), ALT, V/S, FLC, autothrottle, flare and rollout. The AI copilot (O) flies a complete departure, cruise, descent, ILS approach, autoland and go-around.
+- **ATC** (`lib/atc.ts`): clearance delivery, tower, departure, centre hand-offs, top-of-descent, approach with ILS clearance, landing clearance, ground; altitude-deviation calls and traffic advisories from live ADS-B traffic. Standard phraseology, spoken by the browser speech engine.
+- **World**: Sentinel-2 cloudless global imagery with national orthophotos (USGS, IGN, swisstopo, PDOK, GSI), night city lights, ocean water mask, flattened airports, textured runways with ICAO markings, edge/threshold/approach lights and a working PAPI, METAR-driven cloud layers, visibility fog, rain, snow and lightning, real time of day.
+- **Cockpit**: glass PFD (tapes, V-speed bugs, FMA, flight director, ILS deviation, flight-path vector), navigation display (route, airports, TCAS-style traffic, wind) and engine/systems page, also painted in the 3D cockpit. GPWS and radio-altitude callouts, stall horn, gear horn, overspeed clacker.
+- **Live traffic**: real aircraft around you from adsb.lol, drawn in 3D and on the ND.
 
-**Limits:** This is a game prototype, not Microsoft Flight Simulator or an aviation tool. Airport records are a dated snapshot, not NOTAMs or live airport operations. Only 10,953 airports have surveyed runway endpoints in this snapshot; 37,322 have usable runway dimensions, including inferred locations. Missing locations use labeled approximate practice strips. Airport terminals, taxiways, traffic and interiors are not reproduced worldwide. Global NASA imagery is coarse, Japan is more detailed. Terrain availability depends on public services. The aircraft is a sourced sample model with approximate handling and an original interior, not a certified or branded systems replica. Engine sound is synthesized. Weather, ATC, multiple authentic aircraft systems, real traffic, and a measured 56-hour campaign are not implemented.
+## Controls
+
+W/S or ↑/↓ pitch · A/D or ←/→ roll · Z/X rudder · Q/E thrust · I engines (Ctrl+E auto-start) · V/Shift+V flaps · G gear · / spoilers · F reverse · Space brakes · Ctrl+. parking brake · [ ] trim · P autopilot · T autothrottle · O AI copilot · B altimeter QNH · M ATC window, 1–9 to talk · C view (chase, cockpit, orbit, tower) · U instrument panel · H HUD · +/− sim rate (solo) · R recover · Esc settings. Gamepads and touch are supported.
+
+## Limits
+
+This is a browser game, not Microsoft Flight Simulator and not an aviation tool. There are no photogrammetry cities, taxiway graphs or gates; aircraft are the three listed; systems are simplified (no electrical, hydraulic or FMS pages); ATC frequencies, aircraft names and liveries are fictional; imagery resolution depends on public services, and some services may throttle. Weather and traffic depend on third-party availability and fall back to standard conditions. Long flights run in real time unless you use sim rate in solo mode.
 
 ## Japanese expedition (/adventure)
 
@@ -54,7 +62,7 @@ npm start
 
 Local storage uses Node SQLite in `.data/`. Vercel requires `DATABASE_URL` connected to Neon Postgres. The existing deployment already has its database integration. Secrets stay in environment variables; player tokens are stripped from room views. Rooms use a `flight:` namespace to preserve earlier adventure saves.
 
-Vercel: Next.js preset, `npm run build`, automatic output directory. `/api/flight` traces local elevation JSON, and `/api/world` traces the airport catalog. `/api/health` reports version 4.0.0 and the actual storage type. Source branch: `codex/japan-flight-adventure`; production branch: `codex/vercel-release`.
+Vercel: Next.js preset, `npm run build`, automatic output directory. `/api/flight` traces local elevation JSON, and `/api/world` traces the airport catalog. `/api/health` reports version 5.0.0 and the actual storage type. Source branch: `codex/japan-flight-adventure`; production branch: `codex/vercel-release`.
 
 ## Geography and attribution
 
@@ -68,7 +76,7 @@ To rebuild snapshots, install Pillow in Python and run `python scripts/fetch-fli
 
 ## Verification
 
-The world-flight suite checks global airport lookup, antimeridian travel and distances, actual runway acceleration and rotation, low-speed descent and hard-contact behavior, a complete guided approach/touchdown/braking sequence, and two-pilot authentication, movement persistence and recovery. A takeoff and two-pilot join were also reviewed through the browser UI; the full Haneda-to-Narita journey and every airport have not been manually flown.
+The world-flight suite (tests/world-flight.test.ts) checks the airport catalog and both runway directions, ISA atmosphere and altimeter values, METAR decoding, wind-based runway selection and ATIS, published-class takeoff roll, climb rate and stall speed for each aircraft, fly-by-wire alpha protection, crash detection (gear-up, hard impact, wingtip strike, ditching), a complete AI-copilot flight from Haneda to Narita in all three aircraft (takeoff, climb, cruise, ILS capture, autoland, rollout), an airliner landing in gusty crosswind and turbulence with go-around logic, and two-pilot authentication with different aircraft and airliner speeds. The browser build was also exercised in headless Edge: planner with live METARs, takeoff under the AI copilot, ATC hand-off and a live-traffic advisory, all four camera views and the phone layout. Long-haul flights and every airport have not been manually flown.
 
 The flight suite checks six distinct terrain snapshots, mountain elevation, rendered triangle / collision agreement, control behavior, all guided navigation/survey/delivery/landing approaches, and all twelve shared server mission transitions with token authentication, persistence, concurrency, invalid actions and both-pilot confirmation. Browser visual review is separate from those automated checks; neither establishes simulator-grade realism or large-scale performance.
 

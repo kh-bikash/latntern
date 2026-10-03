@@ -53,3 +53,19 @@ Mapped footprint extrusion heights are estimated when absent in source data.
 Tree positions and appearance are procedural, inside mapped forest areas.
 Three.js Water shader: Three.js Contributors, MIT License.
 No Google Maps, Bing, Cesium ion token, paid scenery API or live aircraft feed.
+
+HINODE FLIGHT SIMULATOR 5.0 — live data and imagery
+Global imagery: Sentinel-2 cloudless 2024 by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2024), CC BY-NC-SA 4.0. https://s2maps.eu
+Base and night imagery: NASA GIBS, Blue Marble and VIIRS Black Marble. https://earthdata.nasa.gov/
+United States: USGS The National Map orthoimagery (public domain).
+France: IGN-F / Géoplateforme orthophotos (Licence Ouverte Etalab 2.0).
+Switzerland: swisstopo SWISSIMAGE (open government data).
+Netherlands: PDOK Luchtfoto, Beeldmateriaal Nederland (CC BY 4.0).
+Japan: GSI seamless photo (see above).
+Elevation: Mapzen Terrain Tiles on AWS (SRTM, GMTED, ETOPO1 and others).
+Weather: METAR observations from the NOAA Aviation Weather Center (aviationweather.gov, public domain); surface and upper-air model data from Open-Meteo.com (CC BY 4.0).
+Live traffic: adsb.lol community ADS-B network (Open Database License).
+Airports and runways: OurAirports (public domain).
+Aircraft: the twin uses the Cesium Air sample model (see models/CESIUM-LICENSE.md). The Kestrel T-180 trainer and NB-200 airliner models, liveries and cockpit displays are original procedural work. Aircraft names, call signs and ATC frequencies are fictional.
+Sound: engines, warnings and touchdown are synthesized; voices use the browser's speech engine.
+Not for real-world navigation.

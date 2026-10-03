@@ -2,13 +2,14 @@ import type { Metadata } from "next";
 import "./globals.css";
 import './flight.css';
 import './world.css';
+import './sim.css';
 
 export const metadata: Metadata = {
-  title: "Hinode — World Flight",
-  description: "Plan worldwide flights, taxi, take off and land together. Open global terrain and a six-region Japanese expedition.",
+  title: "Hinode — Flight Simulator",
+  description: "A browser flight simulator: 6-DOF flight model, three aircraft, live weather and air traffic, ATC, autopilot and autoland at 72,000 real airports.",
   metadataBase: new URL('https://lantern-relay-ten.vercel.app'),
   openGraph: {
-    title: 'Hinode — World Flight',
+    title: 'Hinode — Flight Simulator',
     description: 'Two pilots. Open skies. Plan your route and fly from runway to runway.',
     images: [{ url: '/flight/terrain/fuji.webp', width: 2048, height: 2048, alt: 'Real aerial photography of Mount Fuji' }],
     type: 'website',
