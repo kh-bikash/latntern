@@ -38,7 +38,7 @@ const blend=(a:number[],b:number[],t:number)=>a.map((v,i)=>Math.round(v+(b[i]-v)
 /** MapLibre style: open satellite imagery, national orthophotos where available, open terrain and airfield layers. */
 function buildStyle():StyleSpecification{const raster=(tiles:string,maxzoom:number,bounds?:[number,number,number,number],attribution?:string)=>({type:'raster' as const,tiles:[tiles],tileSize:256,maxzoom,bounds,attribution});
  return{version:8,glyphs:'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
-  sources:{sat:raster('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',19,undefined,'Imagery © Esri, Maxar, Earthstar Geographics'),
+  sources:{sat:raster('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?blankTile=false',19,undefined,'Imagery © Esri, Maxar, Earthstar Geographics'),
    ign:raster('https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',18,[-5.2,41.3,9.6,51.1],'IGN-F'),
    swiss:raster('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg',18,[5.9,45.8,10.5,47.85],'© swisstopo'),pdok:raster('https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg',18,[3.3,50.7,7.3,53.6],'PDOK'),
    night:raster('https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png',8,undefined,'NASA VIIRS Black Marble'),

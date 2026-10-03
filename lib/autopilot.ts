@@ -71,7 +71,7 @@ export function autopilot(s:FlightState,ap:Autopilot,plan:FlightPlan|null,input:
  return out;}
 /** Optional AI copilot: runs the checklist-like flow of a real crew using the same autopilot modes. */
 function copilot(s:FlightState,a:AircraftSpec,ap:Autopilot,plan:FlightPlan|null,v:ReturnType<typeof vSpeeds>,ias:number,alt:number,wx:Weather|null|undefined,out:ApOut,ground:number){
- if(!plan)return;const jet=a.engine==='jet',dep=plan.departure,arr=plan.arrival,agl=s.alt-Math.max(ground,s.ground?ground:0),flaps=a.flapDetents,remaining=planRemaining(s,plan),toIF=(()=>{let d=0,prev={lat:s.lat,lon:s.lon};const k=plan.waypoints.findIndex(w=>w.id==='IF');if(k<plan.active)return 0;for(let j=plan.active;j<=k;j++){d+=geoDistance(prev,plan.waypoints[j]);prev=plan.waypoints[j];}return d;})();
+ if(!plan)return;if(s.airborne&&!s.ground)ap.master=true;const jet=a.engine==='jet',dep=plan.departure,arr=plan.arrival,agl=s.alt-Math.max(ground,s.ground?ground:0),flaps=a.flapDetents,remaining=planRemaining(s,plan),toIF=(()=>{let d=0,prev={lat:s.lat,lon:s.lon};const k=plan.waypoints.findIndex(w=>w.id==='IF');if(k<plan.active)return 0;for(let j=plan.active;j<=k;j++){d+=geoDistance(prev,plan.waypoints[j]);prev=plan.waypoints[j];}return d;})();
  const g=glidePath(s,arr),final=plan.waypoints.find(w=>w.id==='IF')!;
  // Take-off roll.
  if(s.ground&&!s.airborne){ap.stage='TAKEOFF';ap.lat='TO';ap.vert='TO';ap.master=true;out.flaps=flaps[a.toFlap]??0;out.gear=true;out.spoilers=0;const g0=glidePath(s,{...dep});
