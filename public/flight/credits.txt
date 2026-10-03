@@ -81,3 +81,7 @@ Optional photorealistic world: Google Photorealistic 3D Tiles, used only with th
 Google Maps Platform API key and shown with Google's on-screen attribution.
 Cockpits, facade shading and clouds are original procedural work.
 Libraries: CesiumJS, three.js, pbf, @mapbox/vector-tile, earcut, gltf-pipeline and gltf-transform (build time).
+
+HINODE FLIGHT SIMULATOR 6.0 — engine
+Rendering: MapLibre GL JS (BSD-3-Clause) and three.js (MIT). CesiumJS is no longer used.
+Glyphs for map labels: OpenFreeMap fonts (Noto Sans, SIL Open Font License).

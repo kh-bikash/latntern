@@ -43,7 +43,7 @@ self.onmessage=async(ev:MessageEvent<Req>)=>{const r=ev.data;try{
   for(let f=0;f<L.length;f++){const feat=L.feature(f),cls=String((feat.properties as Record<string,string>).class);
    if(feat.type===3&&(cls==='apron'||cls==='taxiway'))for(const poly of polygons(feat.loadGeometry() as {x:number;y:number}[][]))flat(poly,ext,(x,y)=>ground(x,y,ext)+(cls==='apron'?.12:.16),cls==='apron'?apron:taxi);
    if(feat.type===2&&cls==='taxiway')for(const ln of feat.loadGeometry() as {x:number;y:number}[][])for(let i=0;i<ln.length-1;i++){const [x1,y1]=local(ln[i],ext),[x2,y2]=local(ln[i+1],ext),dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy);if(len<.5)continue;const ox=-dy/len,oy=dx/len,z1=ground(ln[i].x,ln[i].y,ext),z2=ground(ln[i+1].x,ln[i+1].y,ext);
-    for(const [w,b,dz] of [[11.5,taxi,.17],[.35,line,.22]] as [number,Bucket,number][]){const a=[x1+ox*w,y1+oy*w,z1+dz],c=[x1-ox*w,y1-oy*w,z1+dz],d=[x2-ox*w,y2-oy*w,z2+dz],e=[x2+ox*w,y2+oy*w,z2+dz];tri(b,a,c,d,0,0,1);tri(b,a,d,e,0,0,1);}}}}
+    for(const [w,b,dz] of [[.4,line,.2]] as [number,Bucket,number][]){const a=[x1+ox*w,y1+oy*w,z1+dz],c=[x1-ox*w,y1-oy*w,z1+dz],d=[x2-ox*w,y2-oy*w,z2+dz],e=[x2+ox*w,y2+oy*w,z2+dz];tri(b,a,c,d,0,0,1);tri(b,a,d,e,0,0,1);}}}}
  const out=[...buckets.values()].filter(b=>b.pos.length).map(b=>({color:b.color,pos:new Float32Array(b.pos),nrm:new Float32Array(b.nrm),st:new Float32Array(b.st)}));
  (self as unknown as Worker).postMessage({id:r.id,latC,out},out.flatMap(o=>[o.pos.buffer,o.nrm.buffer,o.st.buffer]));
 }catch(e){(self as unknown as Worker).postMessage({id:r.id,error:e instanceof Error?e.message:'tile failed'});}};

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import 'maplibre-gl/dist/maplibre-gl.css';
 import './flight.css';
 import './world.css';
 import './sim.css';
@@ -28,7 +29,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <head><link rel="stylesheet" href="/cesium/Widgets/widgets.css"/></head><body className="antialiased">{children}</body>
+      <body className="antialiased">{children}</body>
     </html>
   );
 }

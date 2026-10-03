@@ -1,15 +1,18 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
-import type * as Cesium from 'cesium';
+import type {Map as MapLibreMap,StyleSpecification,GeoJSONSource} from 'maplibre-gl';
 import * as THREE from 'three';
+import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
+import {MeshoptDecoder} from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import {buildDeck,drawFcu,drawGliderGauges,type Deck} from './Cockpits';
 import {drawPanel,drawPFD,drawND,drawEICAS,type AvionicsData,type NavPoint} from './Avionics';
 import {aircraftModelUrl} from './AircraftModels';
-import {AirfieldLayer,CloudField,AircraftLights,TrafficLayer,weatherStage,sunElevation,type LiveTraffic,type TrafficModel} from './worldScene';
+import {airfieldArt,papiLights,pointsGeoJSON,ThreeClouds,ThreeTraffic,WeatherOverlay,sunElevation,sunAzimuth,type LiveTraffic,type TrafficModel,type Airfield} from './worldScene';
+import {ThreeLayer,wrapModel,type Placed} from './threeLayer';
 import {OsmScenery} from './osmScenery';
 import type {Sim,Telemetry,TimePreset} from './sim';
 import {AircraftAudio,Speaker} from '@/lib/aircraftAudio';
-import {openTerrain,worldImagery,sentinelImagery,regionalImagery,nightImagery,groundInfo,flattenAirport} from '@/lib/worldTerrain';
+import {demProtocol,groundInfo,flattenAirport} from '@/lib/worldTerrain';
 import {geoDistance,geoBearing,geoMove,nearRunway,stepWorld,worldStallSpeed,type Airport,type WorldRoom,type WorldPlane} from '@/lib/worldFlight';
 import {spec,vSpeeds,aircraftMass,AIRCRAFT,type ModelInfo,type AircraftId} from '@/lib/aircraft';
 import {autopilot,indicatedAlt,glidePath,planRemaining,newAutopilot,shortMode} from '@/lib/autopilot';
@@ -17,54 +20,64 @@ import {atmosphere,windAt} from '@/lib/weather';
 import {loadMetars,loadModel,weatherAt,type Metar} from '@/lib/weatherClient';
 import {clamp} from '@/lib/flight';
 
-declare global{interface Window{Cesium:typeof Cesium;CESIUM_BASE_URL:string;}}
-let cesiumLoading:Promise<typeof Cesium>|undefined;
-function loadCesium(){return cesiumLoading??=new Promise((resolve,reject)=>{if(window.Cesium)return resolve(window.Cesium);window.CESIUM_BASE_URL='/cesium/';const s=document.createElement('script');s.src='/cesium/Cesium.js';s.onload=()=>resolve(window.Cesium);s.onerror=()=>reject(new Error('The globe engine could not load.'));document.head.appendChild(s);});}
 export type View={camera:number;clean:boolean;panel:boolean};
 export type CanvasEvent={type:'touchdown';data:import('@/lib/flightModel').Touchdown;atArrival:boolean}|{type:'crash';reason:string}|{type:'ap';text:string};
 export type Preview={lat:number;lon:number;elevation:number;heading:number}|null;
-type Props={room:WorldRoom|null;sim:Sim|null;view:View;sound:boolean;paused:boolean;shared:boolean;preview?:Preview;quality?:'performance'|'balanced'|'high';googleKey?:string;onMove:(p:WorldPlane)=>void;onTelemetry:(t:Telemetry)=>void;onEvent:(e:CanvasEvent)=>void;onError:(s:string)=>void};
-type Globe={C:typeof Cesium;v:Cesium.Viewer;wx:ReturnType<typeof weatherStage>;scenery:OsmScenery;google:Cesium.Cesium3DTileset|null;layers:(lat:number,lon:number,night:boolean)=>void};
-const kt=.514444,ft=.3048,rad=Math.PI/180;
-const modelUrl=async(m:ModelInfo)=>m.url.startsWith('proc:')?aircraftModelUrl(m.url.slice(5) as 'trainer'|'jet'):m.url;
-const trafficModel=async(id:string):Promise<TrafficModel>=>{const m=AIRCRAFT[id as AircraftId]?.model??AIRCRAFT.jet.model;return{url:await modelUrl(m),scale:m.scale,ground:m.ground,heading:m.heading};};
+type Quality='performance'|'balanced'|'high';
+type Props={room:WorldRoom|null;sim:Sim|null;view:View;sound:boolean;paused:boolean;shared:boolean;preview?:Preview;quality?:Quality;googleKey?:string;onMove:(p:WorldPlane)=>void;onTelemetry:(t:Telemetry)=>void;onEvent:(e:CanvasEvent)=>void;onError:(s:string)=>void};
+type Engine={map:MapLibreMap;layer:ThreeLayer;scenery:OsmScenery;setTime:(date:Date,lat:number,lon:number,vis:number)=>{sunEl:number;day:number}};
+const kt=.514444,ft=.3048,rad=Math.PI/180,EMPTY={type:'FeatureCollection' as const,features:[]};
+// glTF loading with meshopt geometry; each model file is parsed once and cloned per aircraft.
+const loader=new GLTFLoader();loader.setMeshoptDecoder(MeshoptDecoder);const modelCache=new Map<string,Promise<THREE.Object3D>>();
+async function modelObject(m:ModelInfo){const url=m.url.startsWith('proc:')?await aircraftModelUrl(m.url.slice(5) as 'trainer'|'jet'):m.url;let p=modelCache.get(url);if(!p){p=loader.loadAsync(url).then(g=>{g.scene.traverse(o=>{const mesh=o as THREE.Mesh;const mats=mesh.material?(Array.isArray(mesh.material)?mesh.material:[mesh.material]):[];for(const mt of mats as THREE.MeshStandardMaterial[]){if('metalness' in mt){mt.metalness=Math.min(mt.metalness??0,.15);mt.roughness=Math.max(.35,Math.min(mt.roughness??.6,.7));}}});return g.scene;});modelCache.set(url,p);}return wrapModel((await p).clone(true),m.heading===180);}
+const trafficModel=(id:string):TrafficModel=>{const m=AIRCRAFT[id as AircraftId]?.model??AIRCRAFT.jet.model;return{object:()=>modelObject(m),ground:m.ground,scale:m.scale};};
 function timeFor(preset:TimePreset,lat:number,lon:number){const now=new Date();if(preset==='live')return now;const day=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()));const solar=(h:number)=>new Date(day.getTime()+((h-lon/15+48)%24)*3600000);
  if(preset==='dawn'||preset==='sunset'){let best=solar(preset==='dawn'?6:18),score=1e9;for(let h=preset==='dawn'?3:14;h<(preset==='dawn'?11:22);h+=1/12){const d=solar(h),e=sunElevation(d,lat,lon),want=preset==='dawn'?3:2.5,s=Math.abs(e-want);if(s<score){score=s;best=d;}}return best;}
  return solar({morning:9,noon:12.5,afternoon:15.5,night:23}[preset] as number);}
-/** One globe for the whole session: the planner and every flight reuse it, so terrain and imagery stay cached. */
-async function createGlobe(el:HTMLElement,q:'performance'|'balanced'|'high',googleKey?:string,onError?:(s:string)=>void):Promise<Globe>{const C=await loadCesium();
- const v=new C.Viewer(el,{terrainProvider:openTerrain(C),baseLayer:new C.ImageryLayer(sentinelImagery(C)),animation:false,timeline:false,geocoder:false,homeButton:false,sceneModePicker:false,baseLayerPicker:false,navigationHelpButton:false,fullscreenButton:false,selectionIndicator:false,infoBox:false,shouldAnimate:true,showRenderLoopErrors:false,shadows:q==='high',contextOptions:{webgl:{alpha:false,antialias:true,powerPreference:'high-performance'}},msaaSamples:q==='high'?4:q==='balanced'?2:1});
- const scene=v.scene,globe=scene.globe;v.resolutionScale=q==='performance'?.75:q==='high'?Math.min(2,devicePixelRatio):1;globe.maximumScreenSpaceError=q==='performance'?3:q==='high'?1.3:2;globe.tileCacheSize=q==='performance'?200:500;globe.loadingDescendantLimit=q==='performance'?12:24;globe.preloadSiblings=false;globe.preloadAncestors=true;
- globe.depthTestAgainstTerrain=true;globe.enableLighting=true;globe.dynamicAtmosphereLighting=true;globe.dynamicAtmosphereLightingFromSun=true;globe.showWaterEffect=q!=='performance';globe.shadows=q==='high'?C.ShadowMode.RECEIVE_ONLY:C.ShadowMode.DISABLED;
- scene.fog.enabled=true;scene.fog.density=1.6e-4;scene.fog.minimumBrightness=.08;scene.highDynamicRange=true;scene.postProcessStages.tonemapper=C.Tonemapper.PBR_NEUTRAL;scene.postProcessStages.exposure=1.05;scene.postProcessStages.fxaa.enabled=true;scene.screenSpaceCameraController.enableInputs=false;
- if(scene.shadowMap){scene.shadowMap.maximumDistance=q==='high'?900:450;scene.shadowMap.softShadows=q==='high';scene.shadowMap.size=q==='high'?4096:2048;scene.shadowMap.darkness=.35;}
- if(q==='high'){const flare=C.PostProcessStageLibrary.createLensFlareStage();flare.uniforms.intensity=.5;flare.uniforms.distortion=8;flare.uniforms.ghostDispersal=.35;flare.uniforms.haloWidth=.35;flare.uniforms.dirtAmount=.25;flare.uniforms.earthRadius=C.Ellipsoid.WGS84.maximumRadius;scene.postProcessStages.add(flare);}
- // Few imagery layers = few globe shader variants (each layer combination costs a slow shader compile).
- // National orthophotos are attached only near their country and city lights only at night.
- const hi=v.imageryLayers.get(0);hi.contrast=1.08;hi.saturation=1.12;hi.gamma=1.04;hi.nightAlpha=.35;
- const regional=regionalImagery(C).map(p=>({p,area:C.Rectangle.clone(p.rectangle),layer:null as Cesium.ImageryLayer|null}));let nightLayer:Cesium.ImageryLayer|null=null;
- const layers=(lat:number,lon:number,night:boolean)=>{const here=C.Cartographic.fromDegrees(lon,lat),m=C.Math.toRadians(1.5);for(const r of regional){const inside=here.longitude>r.area.west-m&&here.longitude<r.area.east+m&&here.latitude>r.area.south-m&&here.latitude<r.area.north+m;if(inside&&!r.layer)r.layer=v.imageryLayers.addImageryProvider(r.p,1);else if(!inside&&r.layer){v.imageryLayers.remove(r.layer,false);r.layer=null;}}
-  if(night&&!nightLayer){nightLayer=v.imageryLayers.addImageryProvider(nightImagery(C));nightLayer.dayAlpha=0;nightLayer.nightAlpha=.95;nightLayer.brightness=1.6;}else if(!night&&nightLayer){v.imageryLayers.remove(nightLayer,true);nightLayer=null;}};
- v.camera.setView({destination:C.Cartesian3.fromDegrees(139.2,35.2,260000),orientation:{heading:C.Math.toRadians(20),pitch:-.62,roll:0}});
- const scenery=new OsmScenery(C,scene,q);v.creditDisplay.addStaticCredit(new C.Credit('3D buildings, forests and taxiways © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> via <a href="https://openfreemap.org">OpenFreeMap</a> / OpenMapTiles',false));
- // Never freeze the game on a render error: drop the streamed 3D scenery and keep rendering.
- scene.renderError.addEventListener((_s,err)=>{console.error('render error',err);scenery.reset();v.useDefaultRenderLoop=true;});
- // Optional photorealistic world: Google Photorealistic 3D Tiles with the player's own Map Tiles API key.
- let google:Cesium.Cesium3DTileset|null=null;const devIon=/^(localhost|127.0.0.1)$/.test(location.hostname)&&new URLSearchParams(location.search).has('ion3d');
- if(googleKey||devIon){try{const opts={maximumScreenSpaceError:q==='high'?8:q==='balanced'?12:18,cacheBytes:768*1024*1024,showCreditsOnScreen:true} as Cesium.Cesium3DTileset.ConstructorOptions;google=devIon&&!googleKey?await C.Cesium3DTileset.fromIonAssetId(2275207,opts):await C.createGooglePhotorealistic3DTileset({key:googleKey},opts);scene.primitives.add(google);globe.show=false;}catch(e){google=null;onError?.(`Photorealistic 3D world unavailable (${e instanceof Error?e.message:'key rejected'}). Check that the Map Tiles API is enabled for this key. Using the open-data world.`);}}
- return{C,v,wx:weatherStage(C,scene),scenery,google,layers};}
+const blend=(a:number[],b:number[],t:number)=>a.map((v,i)=>Math.round(v+(b[i]-v)*clamp(t,0,1))),css=(c:number[])=>`rgb(${c.join(',')})`;
+/** MapLibre style: open satellite imagery, national orthophotos where available, open terrain and airfield layers. */
+function buildStyle():StyleSpecification{const raster=(tiles:string,maxzoom:number,bounds?:[number,number,number,number],attribution?:string)=>({type:'raster' as const,tiles:[tiles],tileSize:256,maxzoom,bounds,attribution});
+ return{version:8,glyphs:'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
+  sources:{sat:raster('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',19,undefined,'Imagery © Esri, Maxar, Earthstar Geographics'),
+   ign:raster('https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',18,[-5.2,41.3,9.6,51.1],'IGN-F'),
+   swiss:raster('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg',18,[5.9,45.8,10.5,47.85],'© swisstopo'),pdok:raster('https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg',18,[3.3,50.7,7.3,53.6],'PDOK'),
+   night:raster('https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png',8,undefined,'NASA VIIRS Black Marble'),
+   dem:{type:'raster-dem',tiles:['flatdem://{z}/{x}/{y}'],tileSize:256,maxzoom:15,encoding:'terrarium',attribution:'Mapzen terrain (SRTM, GMTED, ETOPO1) · 3D buildings © OpenStreetMap contributors via OpenFreeMap'},
+   lights:{type:'geojson',data:EMPTY},papi:{type:'geojson',data:EMPTY},labels:{type:'geojson',data:EMPTY}},
+  layers:[{id:'bg',type:'background',paint:{'background-color':'#3d5a68'}},{id:'sat',type:'raster',source:'sat',paint:{'raster-contrast':.08,'raster-saturation':.1,'raster-fade-duration':120}},...['ign','swiss','pdok'].map(id=>({id,type:'raster' as const,source:id,paint:{'raster-fade-duration':120}})),
+   {id:'night',type:'raster',source:'night',paint:{'raster-opacity':0}},
+   {id:'lights',type:'circle',source:'lights',paint:{'circle-color':['get','color'],'circle-radius':['interpolate',['linear'],['zoom'],11,['*',['get','size'],.35],15,['get','size'],19,['*',['get','size'],2.4]],'circle-blur':.6,'circle-opacity':0,'circle-pitch-alignment':'viewport'}},
+   {id:'papi',type:'circle',source:'papi',paint:{'circle-color':['get','color'],'circle-radius':['interpolate',['linear'],['zoom'],11,2,15,4,19,7],'circle-blur':.5,'circle-pitch-alignment':'viewport'}},
+   {id:'labels',type:'symbol',source:'labels',layout:{'text-field':['get','label'],'text-font':['Noto Sans Regular'],'text-size':11,'text-offset':[0,-2.2],'text-allow-overlap':true},paint:{'text-color':'#c9f2ff','text-halo-color':'#04121a','text-halo-width':1.4}}],
+  terrain:{source:'dem',exaggeration:1},
+  sky:{'sky-color':'#5b9be0','horizon-color':'#d6e6f2','fog-color':'#d8e4ec','sky-horizon-blend':.6,'horizon-fog-blend':.7,'fog-ground-blend':.75,'atmosphere-blend':['interpolate',['linear'],['zoom'],0,1,8,1,11,0]}} as StyleSpecification;}
+/** One map for the whole session: planner and flights reuse it, so tiles stay cached. */
+async function createEngine(el:HTMLElement,q:Quality):Promise<Engine>{const maplibregl=await import('maplibre-gl');maplibregl.setWorkerUrl('/flight/maplibre/maplibre-gl-worker.mjs');
+ try{maplibregl.addProtocol('flatdem',demProtocol() as never);}catch{}
+ const map=new maplibregl.Map({container:el,style:buildStyle(),center:[139.6,35.3],zoom:8,pitch:60,bearing:20,maxPitch:120,maxZoom:23,interactive:false,attributionControl:{compact:true},fadeDuration:q==='performance'?0:150,maxTileCacheSize:q==='performance'?200:600,pixelRatio:q==='performance'?1:q==='high'?Math.min(2,devicePixelRatio):Math.min(1.5,devicePixelRatio),canvasContextAttributes:{antialias:q!=='performance',powerPreference:'high-performance'}});
+ await new Promise<void>(res=>map.once('load',()=>res()));
+ const layer=new ThreeLayer((lon,lat,alt)=>maplibregl.MercatorCoordinate.fromLngLat([lon,lat],alt));map.addLayer(layer);const scenery=new OsmScenery(layer,q);
+ let lastKey='';const setTime=(date:Date,lat:number,lon:number,vis:number)=>{const el2=sunElevation(date,lat,lon),az=sunAzimuth(date,lat,lon),day=clamp((el2+4)/14,0,1),dusk=clamp(1-Math.abs(el2-2)/10,0,1),fog=clamp(1-vis/30000,0,1);
+  layer.setSun(az,el2,day);scenery.setLight(az,el2,day);const key=`${day.toFixed(2)}|${dusk.toFixed(2)}|${fog.toFixed(2)}`;if(key!==lastKey){lastKey=key;
+   const hz=blend(blend([18,24,40],[214,230,242],day),[246,170,110],dusk*.7);
+   map.setSky({'sky-color':css(blend([6,10,22],[91,155,224],day)),'horizon-color':css(hz),'fog-color':css(blend([20,24,32],[214,224,232],day)),'sky-horizon-blend':.6,'horizon-fog-blend':.55+fog*.4,'fog-ground-blend':Math.max(.08,.75-fog*.7),'atmosphere-blend':['interpolate',['linear'],['zoom'],0,1,8,1,11,0]} as never);
+   for(const id of ['sat','ign','swiss','pdok'])map.setPaintProperty(id,'raster-brightness-max',.12+.88*day);map.setPaintProperty('night','raster-opacity',(1-day)*.85);map.setPaintProperty('lights','circle-opacity',day<.55||vis<5000?1:0);}
+  return{sunEl:el2,day};};
+ return{map,layer,scenery,setTime};}
+/** Camera placed at a position with heading, pitch (0 = level) and roll, in MapLibre's free-camera terms. */
+function placeCamera(map:MapLibreMap,lat:number,lon:number,alt:number,heading:number,pitchDeg:number,roll:number){try{map.jumpTo(map.calculateCameraOptionsFromCameraLngLatAltRotation([lon,lat],alt,heading,clamp(90+pitchDeg,0,120),roll));}catch{}}
 export default function WorldCanvas(props:Props){
- const mount=useRef<HTMLDivElement>(null),cockpitMount=useRef<HTMLDivElement>(null),panelRef=useRef<HTMLCanvasElement>(null),live=useRef(props);live.current=props;const globeRef=useRef<Promise<Globe>|null>(null);
- const [loading,setLoading]=useState<string|null>('Loading the globe…'),[progress,setProgress]=useState(0);
- // Globe lifetime and planner preview: fly to the departure airport while the player plans, warming the cache.
- useEffect(()=>{if(!mount.current)return;const p=createGlobe(mount.current,live.current.quality??'balanced',live.current.googleKey,s=>live.current.onError(s));globeRef.current=p;let dead=false,frame=0,orbit=0,last=performance.now(),layersAt=0;
-  void p.then(g=>{if(dead)return;setLoading(null);const {C,v}=g;const tick=(now:number)=>{if(dead||v.isDestroyed())return;frame=requestAnimationFrame(tick);const dt=Math.min(.1,(now-last)/1000);last=now;if(live.current.room)return;const pv=live.current.preview;
-   if(pv){orbit+=dt*2.2;const target=C.Cartesian3.fromDegrees(pv.lon,pv.lat,pv.elevation+30);v.camera.lookAtTransform(C.Transforms.eastNorthUpToFixedFrame(target),new C.HeadingPitchRange(C.Math.toRadians(pv.heading+150+orbit),C.Math.toRadians(-14),2300));if(!g.google)g.scenery.update(pv.lat,pv.lon,600,true);if(now-layersAt>2000){layersAt=now;g.layers(pv.lat,pv.lon,sunElevation(C.JulianDate.toDate(v.clock.currentTime),pv.lat,pv.lon)<-4);}}
-   else{v.camera.lookAtTransform(C.Matrix4.IDENTITY);v.camera.rotate(C.Cartesian3.UNIT_Z,-.00004);}};frame=requestAnimationFrame(tick);
-   v.scene.globe.tileLoadProgressEvent.addEventListener(n=>setProgress(n));}).catch(e=>{setLoading(null);live.current.onError(e instanceof Error?e.message:'Globe could not start.');});
-  return()=>{dead=true;cancelAnimationFrame(frame);void p.then(g=>{g.scenery.destroy();if(!g.v.isDestroyed())g.v.destroy();});};},[]);
- // One flight: aircraft, scenery layers, cockpit, physics and systems on the shared globe.
- useEffect(()=>{const room=props.room,sim=props.sim;if(!room||!sim||!globeRef.current)return;
+ const mount=useRef<HTMLDivElement>(null),cockpitMount=useRef<HTMLDivElement>(null),panelRef=useRef<HTMLCanvasElement>(null),fxRef=useRef<HTMLCanvasElement>(null),live=useRef(props);live.current=props;const engineRef=useRef<Promise<Engine>|null>(null);
+ const [loading,setLoading]=useState<string|null>('Loading the map…');const loadingRef=useRef(loading);loadingRef.current=loading;const setLoadingNull=()=>{loadingRef.current=null;setLoading(null);};
+ // Map lifetime and planner preview: orbit the departure airport while the player plans, warming the tile cache.
+ useEffect(()=>{if(!mount.current)return;const p=createEngine(mount.current,live.current.quality??'balanced');engineRef.current=p;let dead=false,frame=0,orbit=0,last=performance.now(),timeAt=0;
+  void p.then(e=>{if(dead)return;setLoadingNull();const tick=(now:number)=>{if(dead)return;frame=requestAnimationFrame(tick);const dt=Math.min(.1,(now-last)/1000);last=now;if(live.current.room)return;const pv=live.current.preview;
+   if(now-timeAt>3000&&pv){timeAt=now;e.setTime(new Date(),pv.lat,pv.lon,40000);}
+   if(pv){orbit+=dt*2.5;const h=pv.heading+150+orbit,c=geoMove(pv.lat,pv.lon,h+180,2400);e.layer.center={lon:pv.lon,lat:pv.lat};placeCamera(e.map,c.lat,c.lon,pv.elevation+700,h,-16,0);e.scenery.update(pv.lat,pv.lon,600,true);e.layer.repaint();}
+   else e.map.setBearing(e.map.getBearing()+dt*1.5);};frame=requestAnimationFrame(tick);}).catch(err=>{setLoadingNull();live.current.onError(err instanceof Error?err.message:'The map could not start.');});
+  return()=>{dead=true;cancelAnimationFrame(frame);void p.then(e=>{e.scenery.destroy();e.map.remove();}).catch(()=>{});};},[]);
+ // One flight on the shared map: aircraft, airfields, scenery, cockpit, physics and systems.
+ useEffect(()=>{const room=props.room,sim=props.sim;if(!room||!sim||!engineRef.current)return;
   let dead=false,frame=0,audio:AircraftAudio|undefined,renderer:THREE.WebGLRenderer|undefined,cockpitScene:THREE.Scene|undefined;const smooth={p:0,r:0,y:0,gp:0,gr:0},camSpring={h:NaN,p:0,range:30};const ramp=(v:number,target:number,dt:number)=>{if(target===0){const d=dt*4.5;return Math.abs(v)<=d?0:v-Math.sign(v)*d;}if(v!==0&&Math.sign(v)!==Math.sign(target))return v+Math.sign(target)*dt*8;const rate=Math.abs(v)<.4?2.2:1.1,next=v+Math.sign(target)*rate*dt;return Math.abs(next)>Math.abs(target)?target:next;};const keys=new Set<string>(),look={yaw:0,pitch:0,zoom:1,orbit:0};let drag=false,lastPointer=[0,0];const speaker=new Speaker();const cleanups:(()=>void)[]=[];
   const keydown=(e:KeyboardEvent)=>{if((e.target as HTMLElement)?.matches('input[type=text],input[type=search],input[type=password],input:not([type]),textarea,select'))return;if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Slash','F2','Period','PageUp','PageDown'].includes(e.code))e.preventDefault();keys.add(e.code);if(e.code==='Home')look.yaw=look.pitch=0;
    const sim=live.current.sim;if(!sim||e.repeat||live.current.paused)return;const a=spec(sim.aircraft),i=sim.input,ap=sim.ap,det=a.flapDetents;
@@ -78,39 +91,40 @@ export default function WorldCanvas(props:Props){
   const el=mount.current;const pointerDown=(e:PointerEvent)=>{if(e.button!==0)return;drag=true;lastPointer=[e.clientX,e.clientY];el?.setPointerCapture(e.pointerId);},pointerMove=(e:PointerEvent)=>{if(!drag)return;const dx=e.clientX-lastPointer[0],dy=e.clientY-lastPointer[1];if(live.current.view.camera===1){look.yaw=clamp(look.yaw+dx*.16,-150,150);look.pitch=clamp(look.pitch-dy*.13,-40,50);}else{look.orbit+=dx*.3;look.pitch=clamp(look.pitch-dy*.15,-60,70);}lastPointer=[e.clientX,e.clientY];},pointerUp=()=>{drag=false;},wheel=(e:WheelEvent)=>{e.preventDefault();look.zoom=clamp(look.zoom*(e.deltaY>0?1.1:.9),.3,6);};
   el?.addEventListener('pointerdown',pointerDown);el?.addEventListener('pointermove',pointerMove);el?.addEventListener('pointerup',pointerUp);el?.addEventListener('pointercancel',pointerUp);el?.addEventListener('wheel',wheel,{passive:false});
   async function init(){try{
-   setLoading('Loading aircraft and scenery…');const g=await globeRef.current!;if(dead)return;const {C,v}=g,scene=v.scene,globe=scene.globe,wxStage=g.wx;
+   setLoading('Loading aircraft…');const E=await engineRef.current!;if(dead)return;const {map,layer}=E;
    flattenAirport(room!.departure);flattenAirport(room!.arrival);
-   const a=spec(sim!.aircraft),m=a.model;const craft=await C.Model.fromGltfAsync({url:await modelUrl(m),scale:m.scale,minimumPixelSize:0,shadows:C.ShadowMode.ENABLED});if(dead){craft.destroy();return;}scene.primitives.add(craft);cleanups.push(()=>{if(!craft.isDestroyed())scene.primitives.remove(craft);});
-   let remote:Cesium.Model|undefined,remoteKind='';const ownLights=new AircraftLights(C,scene,a.b,m.length),remoteLights=new AircraftLights(C,scene,11,9);
-   const airfields=new AirfieldLayer(C,v),google=g.google,fieldN=new Map<string,{lat:number;lon:number;n:number}>();
-   // In photorealistic mode, measure each airport's offset between the published (sea-level) elevation and the photogrammetry surface.
-   const measure=async(ap:Airport)=>{if(!google)return 0;const known=fieldN.get(ap.id);if(known)return known.n;const pts=(ap.runways.length?ap.runways.slice(0,3):[{lat:ap.lat,lon:ap.lon,endLat:ap.lat,endLon:ap.lon}]).map(r=>C.Cartographic.fromDegrees((r.lon+r.endLon)/2,(r.lat+r.endLat)/2));try{const res=await scene.sampleHeightMostDetailed(pts,[craft]);const hs=res.map(c=>c?.height??NaN).filter(h=>Number.isFinite(h)).sort((x,y)=>x-y);const n=hs.length?hs[Math.floor(hs.length/2)]-ap.elevation:0;fieldN.set(ap.id,{lat:ap.lat,lon:ap.lon,n});return n;}catch{return 0;}};
-   const fieldOffset=(lat:number,lon:number)=>{if(!google||!fieldN.size)return 0;let w=0,sum=0;for(const f of fieldN.values()){const d=Math.max(1000,geoDistance({lat,lon},f)),k=1/(d*d);w+=k;sum+=k*f.n;}return sum/w;};
-   const addField=(ap:Airport,detail:boolean,landing?:string)=>{if(google)void measure(ap).then(n=>{if(!dead)airfields.add(ap,detail,landing,n,false);});else airfields.add(ap,detail,landing);};
+   const a=spec(sim!.aircraft),m=a.model,craftObj=await modelObject(m);if(dead)return;const craft=layer.add(craftObj,{scale:m.scale});cleanups.push(()=>layer.remove(craft,false));
+   // Aircraft lights: nav (red/green/white), beacon, strobes and landing light as screen-sized points on the airframe.
+   const pt=(x:number,y:number,z:number,c:string,size:number)=>{const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute([x,y,z],3));const p=new THREE.Points(g,new THREE.PointsMaterial({color:c,size,sizeAttenuation:false,transparent:true,depthWrite:false}));craftObj.add(p);return p;};
+   const half=a.b/2/m.scale,len=m.length/m.scale,navL=pt(-half,-len*.05,0,'#ff2a2a',5),navR=pt(half,-len*.05,0,'#2aff5a',5),tail=pt(0,-len*.5,.5,'#ffffff',4),beacon=pt(0,0,len*.06,'#ff2020',6),strobes=[pt(-half,-len*.06,0,'#ffffff',8),pt(half,-len*.06,0,'#ffffff',8)],landing=pt(0,len*.42,-.4,'#fffbe8',9);
+   const fields=new Set<string>();let lights:{lat:number;lon:number;color:string;size:number}[]=[],papi:{lat:number;lon:number;angle:number;alt:number}[]=[];const imageIds:string[]=[];
+   const addField=(ap:Airfield,detail:boolean,landingRw?:string)=>{if(fields.has(ap.id))return;fields.add(ap.id);const f=airfieldArt(ap,detail,landingRw);lights=lights.concat(f.lights);papi=papi.concat(f.papi);
+    for(const img of f.images){if(map.getSource(img.id))continue;map.addSource(img.id,{type:'image',url:img.url,coordinates:img.coordinates});map.addLayer({id:img.id,type:'raster',source:img.id,paint:{'raster-fade-duration':0}},'night');imageIds.push(img.id);}
+    (map.getSource('lights') as GeoJSONSource).setData(pointsGeoJSON(lights));};
    addField(room!.departure,true,room!.runway);addField(room!.arrival,true,sim!.plan.arrival.ident);
-   const clouds=new CloudField(C,scene),traffic=new TrafficLayer(C,v,trafficModel);
-   cleanups.push(()=>{airfields.destroy();clouds.destroy(scene);ownLights.destroy(scene);remoteLights.destroy(scene);traffic.destroy();if(remote&&!remote.isDestroyed())scene.primitives.remove(remote);});
-   // Flight deck: a 3D cockpit for the aircraft class, drawn over the globe from the pilot's eye.
+   cleanups.push(()=>{for(const id of imageIds){if(map.getLayer(id))map.removeLayer(id);if(map.getSource(id))map.removeSource(id);}for(const s of ['lights','papi','labels'])(map.getSource(s) as GeoJSONSource|undefined)?.setData(EMPTY);});
+   const clouds=new ThreeClouds(layer),traffic=new ThreeTraffic(layer,trafficModel);let remote:Placed|undefined,remoteKind='';cleanups.push(()=>{clouds.destroy();traffic.destroy();if(remote)layer.remove(remote,false);});
+   const overlay=fxRef.current?new WeatherOverlay(fxRef.current):null;cleanups.push(()=>{const c=fxRef.current;c?.getContext('2d')?.clearRect(0,0,c.width,c.height);});
+   // Flight deck: a 3D cockpit for the aircraft class, drawn over the map from the pilot's eye.
    renderer=new THREE.WebGLRenderer({alpha:true,antialias:true});renderer.setPixelRatio(Math.min(1.5,devicePixelRatio));renderer.setClearColor(0,0);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1;cockpitMount.current?.appendChild(renderer.domElement);
    const built=buildDeck(m.cockpit,renderer,{sidestick:a.fbw&&/Airbus/.test(a.name),engines:a.engines,airbus:/Airbus/.test(a.name)}),deck:Deck=built.deck;cockpitScene=built.scene;const camera3=new THREE.PerspectiveCamera(70,1,.03,40);
-   let plane:WorldPlane={...room!.planes[room!.seat]},recovery=plane.recovery,last=performance.now(),send=0,telemetryAt=0,elapsed=0,ground=room!.departure.elevation,water=false,groundReady=false,groundRequest=0,terrainNotice=false,lastTime='',lastRate=1,panelAt=0,cloudAt=0,wxAt=0,wxPos={lat:999,lon:999},trafficAt=0,nearAt={lat:999,lon:999},flash=0,lastRadio=99999,callouts=new Set<string>(),gpwsAt=0,spinning=false,sceneryAt=0;
+   let plane:WorldPlane={...room!.planes[room!.seat]},recovery=plane.recovery,last=performance.now(),send=0,telemetryAt=0,elapsed=0,ground=room!.departure.elevation,water=false,groundReady=false,groundRequest=0,terrainNotice=false,lastTime='',panelAt=0,cloudAt=0,wxAt=0,wxPos={lat:999,lon:999},trafficAt=0,nearAt={lat:999,lon:999},flash=0,lastRadio=99999,callouts=new Set<string>(),gpwsAt=0,sceneryAt=0,papiAt=0,labelAt=0,simClock=Date.now(),sunInfo={sunEl:30,day:1};
    const airports:Airport[]=[room!.departure,room!.arrival];let metars:Metar[]=[],modelWx:any=null,nearby:Airport[]=[];
    const refreshWeather=async()=>{wxPos={lat:plane.lat,lon:plane.lon};const [mt,w]=await Promise.all([loadMetars([room!.departure.id,room!.arrival.id],plane),sim!.settings.weather==='live'?loadModel(plane.lat,plane.lon):Promise.resolve(null)]);if(dead)return;metars=mt;modelWx=w;if(sim!.settings.weather!=='live'||metars.length||modelWx)sim!.wx=weatherAt(sim!.settings.weather,plane,metars,modelWx,ground);};
    sim!.wx??=weatherAt(sim!.settings.weather,plane,[],null,room!.departure.elevation);void refreshWeather();
-   const groundAtPoint=(lat:number,lon:number)=>{const c=C.Cartographic.fromDegrees(lon,lat),h=google?scene.sampleHeight(c,[craft]):globe.getHeight(c);return h??ground+off;};
-   // Show the flight as soon as the ground under the aircraft is ready (or after a few seconds at most).
-   const readyBy=performance.now()+(google?12000:7000);let off=0;if(!google)g.scenery.update(plane.lat,plane.lon,Math.max(0,plane.alt-ground));
-   const render=(now:number)=>{if(dead||v.isDestroyed()||!renderer||!cockpitScene)return;frame=requestAnimationFrame(render);const P=live.current,r=P.room,S=P.sim;if(!r||!S)return;const realDt=Math.min(.25,(now-last)/1000);last=now;
-    if(loadingRef.current&&(groundReady&&craft.ready&&(google?fieldN.has(r.departure.id):globe.tilesLoaded)||now>readyBy))setLoadingNull();
+   const terrainAt=(lat:number,lon:number)=>map.queryTerrainElevation([lon,lat])??ground;
+   const readyBy=performance.now()+4500;E.scenery.update(plane.lat,plane.lon,Math.max(0,plane.alt-ground));
+   const render=(now:number)=>{if(dead||!renderer||!cockpitScene)return;frame=requestAnimationFrame(render);const P=live.current,r=P.room,S=P.sim;if(!r||!S)return;const realDt=Math.min(.25,(now-last)/1000);last=now;
+    if(loadingRef.current&&(groundReady&&map.areTilesLoaded()||now>readyBy))setLoadingNull();
     const rate=P.shared?1:clamp(S.settings.simRate,1,16),dt=realDt*rate,i=S.input,ap=S.ap,wx=S.wx;
     if(r.planes[r.seat].recovery!==recovery){plane={...r.planes[r.seat]};recovery=plane.recovery;ground=r.departure.elevation;look.yaw=look.pitch=0;S.ap=newAutopilot(Math.round(plane.heading),S.plan.cruiseFt,ap.spd,ap.baro);S.plan.active=1;Object.assign(i,{throttle:0,flaps:plane.flaps,gear:true,engine:plane.engine,spoilers:0,reverse:false,parking:false});callouts.clear();}
-    // Terrain below the aircraft: rendered height first, sampled open terrain as fallback, airports flattened.
-    const h=globe.getHeight(C.Cartographic.fromDegrees(plane.lon,plane.lat));if(h!==undefined){ground=h;groundReady=true;}
-    if(now-groundRequest>1000){groundRequest=now;void groundInfo(plane.lat,plane.lon).then(gi=>{if(dead)return;water=gi.water;if(h===undefined){ground=gi.height;groundReady=true;}}).catch(()=>{if(!terrainNotice){P.onError('Some terrain tiles are unavailable. Scenery will retry; avoid low flight until terrain loads.');terrainNotice=true;}});}
+    // Terrain below the aircraft: rendered map elevation first, sampled open terrain as fallback; airports flattened in both.
+    const h=map.queryTerrainElevation([plane.lon,plane.lat]);if(h!==null&&h!==undefined){ground=h;groundReady=true;}
+    if(now-groundRequest>1000){groundRequest=now;void groundInfo(plane.lat,plane.lon).then(gi=>{if(dead)return;water=gi.water;if(h===null||h===undefined){ground=gi.height;groundReady=true;}}).catch(()=>{if(!terrainNotice){P.onError('Some terrain tiles are unavailable. Scenery will retry; avoid low flight until terrain loads.');terrainNotice=true;}});}
     const pad=navigator.getGamepads?.().find(gp=>gp?.connected),axis=(k:number)=>pad&&Math.abs(pad.axes[k]??0)>.12?pad.axes[k]:0;
     const expo=(x:number)=>x*(.3+.7*x*x);smooth.p=ramp(smooth.p,clamp(((keys.has('KeyS')||keys.has('ArrowDown')?1:0)-(keys.has('KeyW')||keys.has('ArrowUp')?1:0))*(S.settings.invertPitch?-1:1)+S.touch.pitch,-1,1),realDt);smooth.r=ramp(smooth.r,clamp((keys.has('KeyD')||keys.has('ArrowRight')?1:0)-(keys.has('KeyA')||keys.has('ArrowLeft')?1:0)+S.touch.roll,-1,1),realDt);smooth.y=ramp(smooth.y,clamp((keys.has('KeyX')?1:0)-(keys.has('KeyZ')?1:0)+(pad?.buttons[5]?.pressed?1:0)-(pad?.buttons[4]?.pressed?1:0),-1,1),realDt);
     smooth.gp+=(expo(axis(1))-smooth.gp)*Math.min(1,realDt*14);smooth.gr+=(expo(axis(0))-smooth.gr)*Math.min(1,realDt*14);const stickP=clamp(smooth.p+smooth.gp,-1,1),stickR=clamp(smooth.r+smooth.gr,-1,1);
-    if(!P.paused&&!document.hidden){elapsed+=dt;
+    if(!P.paused&&!document.hidden){elapsed+=dt;simClock+=dt*1000;
      if(!ap.athr||!ap.master)i.throttle=clamp(i.throttle+realDt*((keys.has('KeyE')&&!keys.has('ControlLeft')||keys.has('PageUp')?.35:0)-(keys.has('KeyQ')||keys.has('PageDown')?.35:0)+(pad?.buttons[7]?.value??0)*.4-(pad?.buttons[6]?.value??0)*.4),0,1);
      if((ap.master||ap.copilot)&&(Math.abs(stickP)>.5||Math.abs(stickR)>.5)){ap.master=false;ap.copilot=false;audio?.tone('ap');P.onEvent({type:'ap',text:'AUTOPILOT DISCONNECTED'});}
      i.pitch=stickP;i.roll=stickR;i.rudder=smooth.y;i.brake=keys.has('Space')||keys.has('Period')&&!keys.has('ControlLeft')||!!pad?.buttons[1]?.pressed||S.touch.brake;i.stability=S.settings.stability;i.autoRudder=S.settings.autoRudder;i.unlimitedFuel=S.settings.unlimitedFuel;
@@ -121,40 +135,43 @@ export default function WorldCanvas(props:Props){
       if(ev.touchdown){const atArrival=geoDistance(plane,r.arrival)<6000;if(plane.airborne&&elapsed>20){S.touchdowns.push(ev.touchdown);P.onEvent({type:'touchdown',data:ev.touchdown,atArrival});}audio?.touchdown(ev.touchdown.fpm/196.85);}
       if(ev.crash){P.onEvent({type:'crash',reason:ev.crash});speaker.stop();break;}}
      look.yaw=clamp(look.yaw+axis(2)*realDt*60,-150,150);look.pitch=clamp(look.pitch-axis(3)*realDt*40,-40,50);}
-    // Time of day and clock rate.
-    const tkey=`${S.settings.time}`;if(lastTime!==tkey){lastTime=tkey;v.clock.currentTime=C.JulianDate.fromDate(timeFor(S.settings.time,r.departure.lat,r.departure.lon));}if(lastRate!==rate||v.clock.shouldAnimate===P.paused){lastRate=rate;v.clock.multiplier=rate;v.clock.shouldAnimate=!P.paused;}
-    const date=C.JulianDate.toDate(v.clock.currentTime),sunEl=sunElevation(date,plane.lat,plane.lon),nightTime=sunEl<-4,dusk=clamp((sunEl+6)/12,0,1);
-    // Weather refresh, clouds and screen-space weather.
+    // Time of day (the sim clock follows the sim rate): sky, lighting and night layers.
+    if(lastTime!==S.settings.time){lastTime=S.settings.time;simClock=timeFor(S.settings.time,r.departure.lat,r.departure.lon).getTime();cloudAt=0;}
+    const date=new Date(simClock),camCockpit=P.view.camera===1;
+    // Weather refresh, clouds and screen weather.
     if((now-wxAt>600000||geoDistance(plane,wxPos)>60000)&&now-wxAt>20000){wxAt=now;void refreshWeather();}
-    if(now-cloudAt>800){cloudAt=now;clouds.update(plane.lat,plane.lon,wx,.25+.75*dusk);}
-    const inCloud=CloudField.inside(wx,plane.alt),topCloud=Math.max(0,...(wx?.clouds.map(c=>c.base)??[0])),precip=wx&&plane.alt<topCloud+300?wx.intensity:0,camCockpit=P.view.camera===1;
-    if(wx?.precip==='thunder'&&Math.random()<realDt*.08)flash=.9;flash*=Math.exp(-realDt*7);
-    Object.assign(wxStage.u,{u_vis:Math.max(60,wx?.visibility??40000),u_cloud:inCloud,u_rain:wx&&(wx.precip==='rain'||wx.precip==='thunder')?precip:0,u_snow:wx?.precip==='snow'?precip:0,u_flash:flash*(nightTime?.5:.25),u_time:now/1000,u_speed:camCockpit?Math.min(120,plane.speed):20});const fogL=.08+.72*dusk;wxStage.u.u_fog=new C.Cartesian3(fogL*.95,fogL*.97,fogL*1.02);
-    // Nearby airports, runway lights, OpenStreetMap scenery and live traffic.
-    if(geoDistance(plane,nearAt)>20000){nearAt={lat:plane.lat,lon:plane.lon};void fetch(`/api/world?lat=${plane.lat.toFixed(2)}&lon=${plane.lon.toFixed(2)}&km=60`).then(x=>x.json()).then(d=>{if(dead)return;nearby=(d.airports??[]) as Airport[];nearby.forEach((ap2,k)=>{flattenAirport(ap2);addField(ap2,k<4);});}).catch(()=>{});}
-    airfields.update({lat:plane.lat,lon:plane.lon,alt:plane.alt},nightTime||sunEl<2,(wx?.visibility??99999)<5000,now/1000);
-    if(now-sceneryAt>1500)g.layers(plane.lat,plane.lon,nightTime||sunEl<0);if(now-sceneryAt>1500&&!google){sceneryAt=now;g.scenery.update(plane.lat,plane.lon,Math.max(0,plane.alt-ground));}
+    if(now-cloudAt>800){cloudAt=now;sunInfo=E.setTime(date,plane.lat,plane.lon,wx?.visibility??40000);clouds.update(plane.lat,plane.lon,wx,.25+.75*clamp((sunInfo.sunEl+6)/12,0,1));}
+    const nightTime=sunInfo.sunEl<-4,dusk=clamp((sunInfo.sunEl+6)/12,0,1);
+    const inCloud=ThreeClouds.inside(wx,plane.alt),topCloud=Math.max(0,...(wx?.clouds.map(c=>c.base)??[0])),precip=wx&&plane.alt<topCloud+300?wx.intensity:0;
+    if(wx?.precip==='thunder'&&Math.random()<realDt*.08)flash=.9;flash*=Math.exp(-realDt*7);const fogL=Math.round(20+200*dusk);
+    overlay?.draw({rain:wx&&(wx.precip==='rain'||wx.precip==='thunder')?precip:0,snow:wx?.precip==='snow'?precip:0,cloud:inCloud,flash:flash*(nightTime?.5:.25),fog:`rgb(${fogL},${fogL+4},${fogL+10})`,speed:camCockpit?Math.min(120,plane.speed):20,dt:realDt});
+    // Nearby airports, PAPI, OpenStreetMap scenery and live traffic.
+    if(geoDistance(plane,nearAt)>20000){nearAt={lat:plane.lat,lon:plane.lon};void fetch(`/api/world?lat=${plane.lat.toFixed(2)}&lon=${plane.lon.toFixed(2)}&km=60`).then(x=>x.json()).then(d=>{if(dead)return;nearby=(d.airports??[]) as Airport[];nearby.forEach((ap2,k)=>{flattenAirport(ap2);addField(ap2,k<3);});}).catch(()=>{});}
+    if(now-papiAt>300){papiAt=now;const near=papi.filter(k=>Math.abs(k.lat-plane.lat)<.3&&Math.abs(k.lon-plane.lon)<.3);(map.getSource('papi') as GeoJSONSource).setData(pointsGeoJSON(papiLights(near,plane)));}
+    if(now-sceneryAt>1500){sceneryAt=now;E.scenery.update(plane.lat,plane.lon,Math.max(0,plane.alt-ground));}
     if(S.settings.traffic&&now-trafficAt>8000){trafficAt=now;void fetch(`/api/traffic?lat=${plane.lat.toFixed(3)}&lon=${plane.lon.toFixed(3)}`).then(x=>x.json()).then(d=>{if(dead)return;const at=Date.now();void traffic.sync(((d.aircraft??[]) as LiveTraffic[]).map(t=>({...t,at})));}).catch(()=>{});}
-    if(!S.settings.traffic&&traffic.list().length)void traffic.sync([]);traffic.update(Date.now(),groundAtPoint,fieldOffset);
-    // Aircraft placement: wheels on the surface at the physics contact height. Models built nose-aft are turned around.
-    // Photorealistic mode: on the ground, sit the wheels on the real runway surface; in the air, use the airport offsets.
-    if(google){let target=fieldOffset(plane.lat,plane.lon);if(plane.ground){const sh=scene.sampleHeight(C.Cartographic.fromDegrees(plane.lon,plane.lat),[craft]);if(sh!==undefined&&Math.abs(sh-(plane.alt-a.gearHeight)-target)<25)target=sh-(plane.alt-a.gearHeight);}off+=(target-off)*Math.min(1,realDt*(plane.ground?4:.5));}
-    const flip=m.heading===180,lift=m.ground-a.gearHeight+off,position=C.Cartesian3.fromDegrees(plane.lon,plane.lat,plane.alt+lift),frameAc=C.Transforms.headingPitchRollToFixedFrame(position,new C.HeadingPitchRoll(C.Math.toRadians(plane.heading-90),plane.pitch,-plane.roll)),fixed=flip?C.Transforms.headingPitchRollToFixedFrame(position,new C.HeadingPitchRoll(C.Math.toRadians(plane.heading+90),-plane.pitch,plane.roll)):frameAc;
-    craft.modelMatrix=fixed;craft.show=!camCockpit;if(m.url.includes('Cesium_Air')&&craft.ready&&spinning!==((plane.n1??0)>.05)){spinning=(plane.n1??0)>.05;craft.activeAnimations.removeAll();if(spinning)craft.activeAnimations.addAll({loop:C.ModelAnimationLoop.REPEAT,multiplier:.5+(plane.n1??0)*2});}
-    if(craft.ready&&m.url.startsWith('proc:')){try{const gn=craft.getNode('gear');if(gn)gn.show=(plane.gearPos??1)>.5;const pr=craft.getNode('prop');if(pr)pr.matrix=C.Matrix4.multiply(pr.originalMatrix,C.Matrix4.fromRotationTranslation(C.Matrix3.fromRotationZ(now/1000*(plane.n1??0)*260%(Math.PI*2))),new C.Matrix4());}catch{}}
-    const agl=plane.alt-(nearRunway(plane,[...airports,...nearby])?.airport.elevation??ground)-a.gearHeight;ownLights.update(frameAc,now/1000,{engine:plane.engine,ground:plane.ground,agl,night:nightTime||sunEl<3});
+    if(!S.settings.traffic&&traffic.list().length)void traffic.sync([]);traffic.update(Date.now(),terrainAt);
+    if(now-labelAt>500){labelAt=now;(map.getSource('labels') as GeoJSONSource).setData(pointsGeoJSON(traffic.positions().filter(t=>geoDistance(plane,t)<30000).map(t=>({lat:t.lat,lon:t.lon,label:`${t.flight||t.reg||t.hex.toUpperCase()}\n${t.type||'—'} ${t.ground?'GND':t.alt!==null?`FL${String(Math.round(t.alt/100)).padStart(3,'0')}`:''}`}))));}
+    // Aircraft placement: wheels on the surface at the physics contact height.
+    Object.assign(craft,{lat:plane.lat,lon:plane.lon,alt:plane.alt-a.gearHeight+m.ground,heading:plane.heading,pitch:plane.pitch,roll:plane.roll,visible:!camCockpit});layer.center={lon:plane.lon,lat:plane.lat};
+    const blink=(now/1000*1.2)%1,nav=plane.engine||nightTime||sunInfo.sunEl<3;navL.visible=navR.visible=tail.visible=nav;beacon.visible=plane.engine&&(now/1000%1)<.12;for(const s of strobes)s.visible=!plane.ground&&(blink<.06||blink>.12&&blink<.17);
+    const agl=plane.alt-(nearRunway(plane,[...airports,...nearby])?.airport.elevation??ground)-a.gearHeight;landing.visible=plane.engine&&(agl<3000||plane.ground)&&(nightTime||!plane.ground);
+    if(m.url.startsWith('proc:')){const gearNode=craftObj.getObjectByName('gear'),prop=craftObj.getObjectByName('prop');if(gearNode)gearNode.visible=(plane.gearPos??1)>.5;if(prop)prop.rotation.z=(now/1000*(plane.n1??0)*260)%(Math.PI*2);}
     const other=r.planes[1-r.seat],om=spec(other.aircraft).model,showRemote=!!r.names[1]&&Date.now()-other.seen<6000;
-    if(showRemote&&remoteKind!==om.url){remoteKind=om.url;void modelUrl(om).then(u=>C.Model.fromGltfAsync({url:u,scale:om.scale,color:C.Color.fromCssColorString('#8fceee'),colorBlendMode:C.ColorBlendMode.MIX,colorBlendAmount:.25})).then(md=>{if(dead||v.isDestroyed()){md.destroy();return;}if(remote)scene.primitives.remove(remote);remote=md;scene.primitives.add(md);});}
-    if(remote){remote.show=showRemote;const oa=spec(other.aircraft),op=C.Cartesian3.fromDegrees(other.lon,other.lat,other.alt+om.ground-oa.gearHeight+fieldOffset(other.lat,other.lon)),of=om.heading===180;remote.modelMatrix=C.Transforms.headingPitchRollToFixedFrame(op,new C.HeadingPitchRoll(C.Math.toRadians(other.heading-90+om.heading),of?-other.pitch:other.pitch,of?other.roll:-other.roll));if(showRemote)remoteLights.update(C.Transforms.headingPitchRollToFixedFrame(op,new C.HeadingPitchRoll(C.Math.toRadians(other.heading-90),other.pitch,-other.roll)),now/1000,{engine:other.engine,ground:other.ground,agl:500,night:nightTime});}
+    if(showRemote&&remoteKind!==om.url){remoteKind=om.url;void modelObject(om).then(o=>{if(dead)return;if(remote)layer.remove(remote,false);remote=layer.add(o,{scale:om.scale});});}
+    if(remote){const oa=spec(other.aircraft);Object.assign(remote,{lat:other.lat,lon:other.lon,alt:other.alt-oa.gearHeight+om.ground,heading:other.heading,pitch:other.pitch,roll:other.roll,visible:showRemote});}
     // Cameras: chase, cockpit, orbit and tower.
-    v.camera.lookAtTransform(C.Matrix4.IDENTITY);const cam=P.view.camera,chase=Math.max(18,m.length*1.9);
-    if(cam===1){const [f,eh,side]=m.eye,eye=C.Matrix4.multiplyByPoint(frameAc,new C.Cartesian3(f,side,eh-m.ground),new C.Cartesian3());v.camera.setView({destination:eye,orientation:{heading:C.Math.toRadians(plane.heading+look.yaw),pitch:plane.pitch+C.Math.toRadians(look.pitch-3),roll:-plane.roll}});(v.camera.frustum as Cesium.PerspectiveFrustum).fov=C.Math.toRadians(clamp(70/look.zoom,25,95));v.camera.frustum.near=.2;}
-    else{v.camera.frustum.near=1;(v.camera.frustum as Cesium.PerspectiveFrustum).fov=C.Math.toRadians(60);if(cam===3){const twr=[...airports].sort((x,y)=>geoDistance(plane,x)-geoDistance(plane,y))[0],tp=geoMove(twr.lat,twr.lon,45,350),tpos=C.Cartesian3.fromDegrees(tp.lon,tp.lat,twr.elevation+45),dir=C.Cartesian3.normalize(C.Cartesian3.subtract(position,tpos,new C.Cartesian3()),new C.Cartesian3());v.camera.setView({destination:tpos,orientation:{direction:dir,up:C.Ellipsoid.WGS84.geodeticSurfaceNormal(tpos,new C.Cartesian3())}});(v.camera.frustum as Cesium.PerspectiveFrustum).fov=C.Math.toRadians(clamp(Math.atan2(m.length*2,C.Cartesian3.distance(tpos,position))*2/rad,1.5,60));}
-     else{if(cam===2&&!drag)look.orbit+=realDt*6;const k=Math.min(1,realDt*2.2);if(Number.isNaN(camSpring.h))camSpring.h=plane.heading;camSpring.h+=(((plane.heading-camSpring.h+540)%360)-180)*k;camSpring.p+=(Math.max(-.35,Math.min(.35,plane.pitch))*.35-camSpring.p)*k;camSpring.range+=(chase*look.zoom*(cam===2?1.6:1)*(1+Math.min(.25,plane.speed/900))-camSpring.range)*Math.min(1,realDt*3);v.camera.lookAtTransform(C.Transforms.eastNorthUpToFixedFrame(position),new C.HeadingPitchRange(C.Math.toRadians(camSpring.h+look.orbit+(cam===2?70:0)),C.Math.toRadians(-7+look.pitch-(cam===2?14:0))-camSpring.p,camSpring.range));}}
-    const camCarto=v.camera.positionCartographic,camGround=google?scene.sampleHeight(camCarto,[craft]):globe.getHeight(camCarto);if(cam!==1&&camGround!==undefined&&camCarto.height<camGround+2){v.camera.lookAtTransform(C.Matrix4.IDENTITY);v.camera.setView({destination:C.Cartesian3.fromRadians(camCarto.longitude,camCarto.latitude,camGround+2),orientation:{heading:v.camera.heading,pitch:v.camera.pitch,roll:0}});}
+    const cam=P.view.camera,chase=Math.max(18,m.length*1.9);
+    if(cam===1){const [f,eh,side]=m.eye,up=eh-a.gearHeight,fwd=f*Math.cos(plane.pitch)-up*Math.sin(plane.pitch),eye=geoMove(plane.lat,plane.lon,plane.heading,fwd),eye2=geoMove(eye.lat,eye.lon,plane.heading-90,side*Math.cos(plane.roll));
+     map.setVerticalFieldOfView(clamp(52/look.zoom,18,80));placeCamera(map,eye2.lat,eye2.lon,plane.alt+up*Math.cos(plane.pitch)+f*Math.sin(plane.pitch),plane.heading+look.yaw,plane.pitch/rad+look.pitch-3,-plane.roll/rad);}
+    else if(cam===3){const twr=[...airports].sort((x,y)=>geoDistance(plane,x)-geoDistance(plane,y))[0],tp=geoMove(twr.lat,twr.lon,45,350),talt=twr.elevation+45,d=geoDistance(tp,plane),brg=geoBearing(tp,plane),pitch=Math.atan2(plane.alt-talt,Math.max(1,d))/rad;map.setVerticalFieldOfView(clamp(Math.atan2(m.length*2,d)*2/rad,2,45));placeCamera(map,tp.lat,tp.lon,talt,brg,pitch,0);}
+    else{if(cam===2&&!drag)look.orbit+=realDt*6;const k=Math.min(1,realDt*2.2);if(Number.isNaN(camSpring.h))camSpring.h=plane.heading;camSpring.h+=(((plane.heading-camSpring.h+540)%360)-180)*k;camSpring.p+=(clamp(plane.pitch,-.35,.35)*.35-camSpring.p)*k;camSpring.range+=(chase*look.zoom*(cam===2?1.6:1)*(1+Math.min(.25,plane.speed/900))-camSpring.range)*Math.min(1,realDt*3);
+     const hdg=camSpring.h+look.orbit+(cam===2?70:0),elev=(7+(cam===2?14:0)-look.pitch)*rad+camSpring.p,horiz=camSpring.range*Math.cos(elev),pos=geoMove(plane.lat,plane.lon,hdg+180,horiz);let calt=plane.alt+camSpring.range*Math.sin(elev);const tg=terrainAt(pos.lat,pos.lon);if(calt<tg+3)calt=tg+3;
+     map.setVerticalFieldOfView(42);placeCamera(map,pos.lat,pos.lon,calt,hdg,-Math.atan2(calt-plane.alt,Math.max(1,horiz))/rad,0);}
+    layer.repaint();
     // Cockpit overlay.
     const host=mount.current!,size=host.getBoundingClientRect();if(renderer.domElement.width!==Math.round(size.width*renderer.getPixelRatio())||renderer.domElement.height!==Math.round(size.height*renderer.getPixelRatio())){renderer.setSize(size.width,size.height);camera3.aspect=size.width/size.height;camera3.updateProjectionMatrix();}
-    camera3.rotation.set(C.Math.toRadians(look.pitch-3),-C.Math.toRadians(look.yaw),0,'YXZ');camera3.fov=clamp(70/look.zoom,25,95)*(1/Math.max(1,camera3.aspect/1.9));camera3.updateProjectionMatrix();cockpitMount.current!.style.display=camCockpit?'block':'none';
+    camera3.rotation.set((look.pitch-3)*rad,-look.yaw*rad,0,'YXZ');camera3.fov=clamp(52/look.zoom,18,80)*1.18;camera3.updateProjectionMatrix();cockpitMount.current!.style.display=camCockpit?'block':'none';
     // Avionics, warnings, callouts and telemetry.
     const mass=aircraftMass(a,plane.fuel),vs=vSpeeds(a,mass),alt=indicatedAlt(plane,wx,ap)/ft,radio=Math.max(0,agl/ft),ias=(plane.ias??0)/kt,wind=windAt(wx,plane.alt),atm=atmosphere(plane.alt,wx??undefined),vsFpm=plane.vertical*196.85,big=a.mtow>15000;
     const flapIdx=a.flapDetents.reduce((b,x,k)=>Math.abs(x-plane.flaps)<Math.abs(a.flapDetents[b]-plane.flaps)?k:b,0),vfe=a.flapSpeeds[flapIdx]??a.vne,vmax=Math.min(a.vne,a.mmo<1?a.mmo/Math.max(.1,plane.mach??.1)*ias:999);
@@ -175,12 +192,12 @@ export default function WorldCanvas(props:Props){
      if(ap.fd&&!plane.ground){data.fdBank=ap.i?.bank??null;data.fdPitch=plane.law?.th??null;}
      const pc=panelRef.current;if(pc&&P.view.panel&&!P.view.clean&&!camCockpit){const w=pc.clientWidth,hh=pc.clientHeight,dpr=Math.min(2,devicePixelRatio);if(pc.width!==Math.round(w*dpr)){pc.width=Math.round(w*dpr);pc.height=Math.round(hh*dpr);}const c2=pc.getContext('2d')!;c2.setTransform(dpr,0,0,dpr,0,0);drawPanel(c2,w,hh,data);}
      if(camCockpit){const sc=deck.screens,paint=(k:string,fn:(c:CanvasRenderingContext2D,w:number,h:number)=>void)=>{const s=sc[k];if(s){fn(s.ctx,s.w,s.h);s.tex.needsUpdate=true;}};
-      paint('pfd',(c,w,h)=>drawPFD(c,0,0,w,h,data));paint('pfd2',(c,w,h)=>drawPFD(c,0,0,w,h,data));paint('nd',(c,w,h)=>drawND(c,0,0,w,h,data));paint('nd2',(c,w,h)=>drawND(c,0,0,w,h,{...data,range:Math.min(160,data.range*2)}));paint('ecam',(c,w,h)=>drawEICAS(c,0,0,w,h,data));paint('ecam2',(c,w,h)=>drawND(c,0,0,w,h,{...data,range:Math.max(2.5,data.range/2)}));
-      paint('mfd',(c,w,h)=>{drawND(c,0,0,w*.68,h,data);drawEICAS(c,w*.68,0,w*.32,h,data);});if(sc.gauges)drawGliderGauges(sc.gauges,{ias,alt,vs:vsFpm});if(deck.fcu)drawFcu(deck.fcu,ap);
+      paint('pfd',(c,w,hh)=>drawPFD(c,0,0,w,hh,data));paint('pfd2',(c,w,hh)=>drawPFD(c,0,0,w,hh,data));paint('nd',(c,w,hh)=>drawND(c,0,0,w,hh,data));paint('nd2',(c,w,hh)=>drawND(c,0,0,w,hh,{...data,range:Math.min(160,data.range*2)}));paint('ecam',(c,w,hh)=>drawEICAS(c,0,0,w,hh,data));paint('ecam2',(c,w,hh)=>drawND(c,0,0,w,hh,{...data,range:Math.max(2.5,data.range/2)}));
+      paint('mfd',(c,w,hh)=>{drawND(c,0,0,w*.68,hh,data);drawEICAS(c,w*.68,0,w*.32,hh,data);});if(sc.gauges)drawGliderGauges(sc.gauges,{ias,alt,vs:vsFpm});if(deck.fcu)drawFcu(deck.fcu,ap);
       deck.update({roll:i.roll,pitch:i.pitch,throttle:i.throttle,flaps:plane.flaps,spoilers:plane.spoilers??0,light:dusk});}}
     if(camCockpit)renderer.render(cockpitScene,camera3);
     // Sound.
-    if(P.sound&&!P.paused&&!document.hidden){audio??=new AircraftAudio(a.engine==='piston'?'piston':'jet',a.engines);audio.update({n1:a.engine==='turboprop'?.35+(plane.n1??0)*.5:plane.n1??0,running:plane.engine,speed:plane.speed,ground:plane.ground,cockpit:camCockpit,stall:!!plane.stall||(!big&&!plane.ground&&ias<worldStallSpeed(plane)/kt+5&&ias>20),gearWarn,overspeed:warnings.includes('OVERSPEED'),reverse:!!plane.reverse,spoilers:plane.spoilers??0,rain:camCockpit?(wxStage.u.u_rain+wxStage.u.u_snow*.3):0});}else if(audio){audio.dispose();audio=undefined;}
+    if(P.sound&&!P.paused&&!document.hidden){audio??=new AircraftAudio(a.engine==='piston'?'piston':'jet',a.engines);audio.update({n1:a.engine==='turboprop'?.35+(plane.n1??0)*.5:plane.n1??0,running:plane.engine,speed:plane.speed,ground:plane.ground,cockpit:camCockpit,stall:!!plane.stall||(!big&&!plane.ground&&ias<worldStallSpeed(plane)/kt+5&&ias>20),gearWarn,overspeed:warnings.includes('OVERSPEED'),reverse:!!plane.reverse,spoilers:plane.spoilers??0,rain:camCockpit&&(wx?.precip==='rain'||wx?.precip==='thunder')?precip:0});}else if(audio){audio.dispose();audio=undefined;}
     speaker.enabled=P.sound&&S.settings.voice;
     // ATC and telemetry.
     if(now-telemetryAt>200){const snap={lat:plane.lat,lon:plane.lon,alt,agl:radio,ias,vs:vsFpm,heading:plane.heading,ground:plane.ground,airborne:plane.airborne,engine:plane.engine,crashed:!!plane.crashed,distDest:geoDistance(plane,r.arrival),locCaptured:!!ap.i?.locCap,onRunway:!!nearRunway(plane,airports),traffic:traffic.list().map(t=>({id:t.hex,type:t.type,flight:t.flight,lat:t.lat,lon:t.lon,alt:t.alt,track:t.track,ground:t.ground})),now:Date.now()};S.snap=snap;
@@ -188,11 +205,10 @@ export default function WorldCanvas(props:Props){
      P.onTelemetry({plane:{...plane},agl:radio*ft,altInd:alt,remaining:geoDistance(plane,r.arrival),bearing:geoBearing(plane,r.arrival),elapsed,terrainReady:groundReady,wx,wind:{dir:wind.dir,speed:wind.speed/kt},oat:atm.T-273.15,nextWp:wp?.id??'',distNext:wp?geoDistance(plane,wp):0,warnings,cautions,traffic:traffic.list().length,input:{...i},ap:{...ap,i:{...ap.i}},rate,night:nightTime});telemetryAt=now;}
     if(now-send>500&&!P.paused){P.onMove({...plane,law:undefined});send=now;}
    };frame=requestAnimationFrame(render);
-  }catch(e){if(!dead){setLoading(null);live.current.onError(e instanceof Error?e.message:'Flight could not start.');}}}
+  }catch(e){if(!dead){setLoadingNull();live.current.onError(e instanceof Error?e.message:'Flight could not start.');}}}
   void init();return()=>{dead=true;cancelAnimationFrame(frame);window.removeEventListener('keydown',keydown);window.removeEventListener('keyup',keyup);window.removeEventListener('blur',blur);el?.removeEventListener('pointerdown',pointerDown);el?.removeEventListener('pointermove',pointerMove);el?.removeEventListener('pointerup',pointerUp);el?.removeEventListener('pointercancel',pointerUp);el?.removeEventListener('wheel',wheel);speaker.stop();audio?.dispose();for(const c of cleanups){try{c();}catch{}}
    cockpitScene?.traverse(o=>{const mesh=o as THREE.Mesh;mesh.geometry?.dispose?.();const mats=mesh.material?(Array.isArray(mesh.material)?mesh.material:[mesh.material]):[];for(const mt of mats){(mt as THREE.MeshStandardMaterial).map?.dispose();mt.dispose();}});renderer?.dispose();renderer?.domElement.remove();};
  // eslint-disable-next-line react-hooks/exhaustive-deps
  },[props.room?.code,props.sim]);
- const loadingRef=useRef(loading);loadingRef.current=loading;const setLoadingNull=()=>{loadingRef.current=null;setLoading(null);};
- return <><div className="world-globe" ref={mount}/><div className="world-cockpit" ref={cockpitMount}/><canvas ref={panelRef} className={`glass-panel ${props.room&&props.view.panel&&!props.view.clean&&props.view.camera!==1?'':'hidden'}`}/>{loading&&<div className={`world-loading ${props.room?'':'soft'}`}><span className="load-ring"/><h2>{props.room?'Preparing your flight':'Loading the globe'}</h2><p>{loading}{progress>0?` · ${progress} tiles`:''}</p></div>}</>;
+ return <><div className="world-globe" ref={mount}/><canvas ref={fxRef} className="world-fx"/><div className="world-cockpit" ref={cockpitMount}/><canvas ref={panelRef} className={`glass-panel ${props.room&&props.view.panel&&!props.view.clean&&props.view.camera!==1?'':'hidden'}`}/>{loading&&<div className={`world-loading ${props.room?'':'soft'}`}><span className="load-ring"/><h2>{props.room?'Preparing your flight':'Loading the map'}</h2><p>{loading}</p></div>}</>;
 }

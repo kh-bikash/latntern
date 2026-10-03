@@ -1,8 +1,12 @@
-# HINODE — Flight Simulator 5.1
+# HINODE — Flight Simulator 6.0
 
 A browser flight simulator on a streaming Earth: a six-degree-of-freedom aerodynamic flight model, three aircraft, live weather, live air traffic, ATC with voice, autopilot and autoland, at 72,603 real airports. Fly solo with time acceleration or share a flight with a second pilot.
 
 **Play:** https://lantern-relay-ten.vercel.app/
+
+## Engine
+
+Rendering uses **MapLibre GL JS** (open-source, BSD) for terrain, satellite imagery, runways, lights and sky, with a **three.js** layer inside the map for aircraft, live traffic, clouds and OpenStreetMap buildings, and a three.js overlay for cockpits. It starts in well under a second and runs on phones. Elevation tiles pass through a custom protocol that clamps the sea floor and flattens airports so the rendered ground matches the physics.
 
 ## What is simulated
 
@@ -17,10 +21,6 @@ A browser flight simulator on a streaming Earth: a six-degree-of-freedom aerodyn
 - **Live traffic**: real aircraft around you from adsb.lol, drawn with the matching type model and on the ND.
 - **3D scenery**: OpenStreetMap buildings at their mapped heights with windowed facades that light up at night, forests, aprons and taxiways, streamed from OpenFreeMap vector tiles and built in a web worker.
 - **Cockpits**: modelled airliner flight deck (glareshield FCU, two PFD/ND pairs, upper and lower ECAM, thrust levers, sidestick or yoke, overhead panel), light-aircraft G1000-style panel, glider instruments.
-
-## Photorealistic world (optional)
-
-Settings → *Photorealistic 3D world* accepts a Google Maps Platform API key with the Map Tiles API enabled. The world then uses Google Photorealistic 3D Tiles (real 3D cities and terrain); airport offsets between sea-level elevations and the photogrammetry are measured so aircraft sit on the real runway surface. The key is stored only in the player's browser; restrict it to your domain. Without a key the open-data world is used.
 
 ## Controls
 
