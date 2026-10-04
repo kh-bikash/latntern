@@ -30,3 +30,11 @@ export async function terrainTile(x:number,y:number,level:number):Promise<Tile>{
 export async function groundInfo(lat:number,lon:number){const l=13,n=2**l,x=(lon+180)/360*n,y=(1-Math.asinh(Math.tan(Math.max(-85,Math.min(85,lat))*Math.PI/180))/Math.PI)/2*n,i=Math.floor(x),j=Math.floor(y),t=await terrainTile(i,j,l),h=t.heights,a=(x-i)*64,b=(y-j)*64,ix=Math.min(63,Math.floor(a)),iy=Math.min(63,Math.floor(b)),u=a-ix,v=b-iy;
  const height=h[iy*65+ix]*(1-u)*(1-v)+h[iy*65+ix+1]*u*(1-v)+h[(iy+1)*65+ix]*(1-u)*v+h[(iy+1)*65+ix+1]*u*v,raw=t.raw[Math.round(b)*65+Math.round(a)];return{height,water:raw<-1.2};}
 export async function groundAt(lat:number,lon:number){return(await groundInfo(lat,lon)).height;}
+/** Esri World Imagery with overzoom: where the finest level has no imagery, the nearest parent tile is enlarged into
+ *  the requested quarter, so the map never shows holes or grey "not available" placeholders. */
+export function imageryProtocol(){return async(params:{url:string},abort:AbortController)=>{const [z,x,y]=params.url.replace('esri://','').split('/').map(Number);
+ for(let d=0;d<=6&&z-d>=0;d++){const zz=z-d,xx=x>>d,yy=y>>d,res=await fetch(`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zz}/${yy}/${xx}?blankTile=false`,{signal:abort.signal});
+  if(res.status===404)continue;if(!res.ok)throw new Error(`imagery ${res.status}`);const buf=await res.arrayBuffer();if(d===0)return{data:buf};
+  const img=await createImageBitmap(new Blob([buf])),s=img.width/2**d,cv=new OffscreenCanvas(256,256),cx=cv.getContext('2d')!;cx.imageSmoothingQuality='high';
+  cx.drawImage(img,(x-(xx<<d))*s,(y-(yy<<d))*s,s,s,0,0,256,256);img.close();return{data:await (await cv.convertToBlob({type:'image/jpeg',quality:.92})).arrayBuffer()};}
+ throw new Error('no imagery');};}

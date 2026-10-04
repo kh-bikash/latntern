@@ -14,7 +14,7 @@ import {ThreeLayer,wrapModel,type Placed} from './threeLayer';
 import {OsmScenery} from './osmScenery';
 import type {Sim,Telemetry,TimePreset} from './sim';
 import {AircraftAudio,Speaker} from '@/lib/aircraftAudio';
-import {demProtocol,groundInfo,flattenAirport} from '@/lib/worldTerrain';
+import {demProtocol,imageryProtocol,groundInfo,flattenAirport} from '@/lib/worldTerrain';
 import {geoDistance,geoBearing,geoMove,nearRunway,stepWorld,worldStallSpeed,type Airport,type WorldRoom,type WorldPlane} from '@/lib/worldFlight';
 import {spec,vSpeeds,aircraftMass,AIRCRAFT,type ModelInfo,type AircraftId} from '@/lib/aircraft';
 import {autopilot,indicatedAlt,glidePath,planRemaining,newAutopilot,shortMode} from '@/lib/autopilot';
@@ -40,7 +40,7 @@ const blend=(a:number[],b:number[],t:number)=>a.map((v,i)=>Math.round(v+(b[i]-v)
 /** MapLibre style: open satellite imagery, national orthophotos where available, open terrain and airfield layers. */
 function buildStyle():StyleSpecification{const raster=(tiles:string,maxzoom:number,bounds?:[number,number,number,number],attribution?:string)=>({type:'raster' as const,tiles:[tiles],tileSize:256,maxzoom,bounds,attribution});
  return{version:8,glyphs:'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
-  sources:{sat:raster('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?blankTile=false',19,undefined,'Imagery © Esri, Maxar, Earthstar Geographics'),
+  sources:{sat:raster('esri://{z}/{x}/{y}',19,undefined,'Imagery © Esri, Maxar, Earthstar Geographics'),
    ign:raster('https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',18,[-5.2,41.3,9.6,51.1],'IGN-F'),
    // national orthophotos are kept only where the server returns 404 (not blank tiles) outside its country
   
@@ -56,7 +56,7 @@ function buildStyle():StyleSpecification{const raster=(tiles:string,maxzoom:numb
   sky:{'sky-color':'#5b9be0','horizon-color':'#d6e6f2','fog-color':'#d8e4ec','sky-horizon-blend':.6,'horizon-fog-blend':.7,'fog-ground-blend':.75,'atmosphere-blend':['interpolate',['linear'],['zoom'],0,1,8,1,11,0]}} as StyleSpecification;}
 /** One map for the whole session: planner and flights reuse it, so tiles stay cached. */
 async function createEngine(el:HTMLElement,q:Quality):Promise<Engine>{const maplibregl=await import('maplibre-gl');maplibregl.setWorkerUrl('/flight/maplibre/maplibre-gl-worker.mjs');
- try{maplibregl.addProtocol('flatdem',demProtocol() as never);}catch{}
+ try{maplibregl.addProtocol('flatdem',demProtocol() as never);maplibregl.addProtocol('esri',imageryProtocol() as never);}catch{}
  const map=new maplibregl.Map({container:el,style:buildStyle(),center:[139.6,35.3],zoom:8,pitch:60,bearing:20,maxPitch:120,maxZoom:23,interactive:false,attributionControl:{compact:true},fadeDuration:q==='performance'?0:150,maxTileCacheSize:q==='performance'?200:600,pixelRatio:q==='performance'?1:q==='high'?Math.min(2,devicePixelRatio):Math.min(1.5,devicePixelRatio),canvasContextAttributes:{antialias:q!=='performance',powerPreference:'high-performance'}});
  await new Promise<void>(res=>map.once('load',()=>res()));
  const layer=new ThreeLayer((lon,lat,alt)=>maplibregl.MercatorCoordinate.fromLngLat([lon,lat],alt));layer.photoreal=new Photoreal(layer);map.addLayer(layer);const scenery=new OsmScenery(layer,q);

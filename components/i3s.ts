@@ -65,9 +65,9 @@ export class I3SSource{
   const pageOf=(i:number)=>Math.floor(i/this.perPage);
   const visit=(n:Node,shownAncestor:boolean):void=>{tmp.copy(n.ecef).applyMatrix4(toLocal);sphere.set(tmp,n.radius);if(!frustum.intersectsSphere(sphere))return;
    const dist=Math.max(1,tmp.distanceTo(cam)-n.radius),px=2*n.radius*focal/dist,refine=!n.mesh||(n.children?.length&&px*px>(n.lodThreshold??0)*this.lodFactor);
-   // skip-LOD: the target level plus one coarse cover layer (150 m – 2.5 km nodes) is fetched, so gaps show coarse
-   // photogrammetry rather than the map's terrain while finer nodes stream in
-   n.used=this.frame;const target=!(refine&&n.children?.length),cover=n.radius>=150&&n.radius<=2500;if(n.mesh&&(target||cover)&&n.state==='none')wanted.push(n);
+   // skip-LOD: only the target (full-detail) level is fetched; the map's own sharp imagery shows until it arrives —
+   // coarse photogrammetry is blurrier than the aerial photo, so it is never used as a stand-in
+   n.used=this.frame;const target=!(refine&&n.children?.length);if(n.mesh&&target&&n.state==='none')wanted.push(n);
    const selfShown=!!n.mesh&&n.state==='ready';
    if(refine&&n.children?.length){const kids:Node[]=[];let missing=false;for(const c of n.children){const k=nodes.get(c);if(!k){void this.page(pageOf(c));missing=true;continue;}kids.push(k);}
     // node switching: draw children only once every visible child with a mesh is ready
