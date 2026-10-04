@@ -70,3 +70,16 @@ export function drawFcu(s:Screen,ap:{spd:number;hdg:number;alt:number;vs:number;
 export function drawGliderGauges(s:Screen,d:{ias:number;alt:number;vs:number}){const c=s.ctx,W=s.w,H=s.h;c.fillStyle='#1a1d20';c.fillRect(0,0,W,H);const g=(i:number,label:string,v:number,max:number,text:string,center=false)=>{const x=W*(i+.5)/3,y=H/2,r=H*.42;c.fillStyle='#08090a';c.beginPath();c.arc(x,y,r,0,7);c.fill();c.strokeStyle='#ddd';c.lineWidth=2;for(let k=0;k<=10;k++){const a=(center?-Math.PI:-Math.PI*.75)+k/10*(center?Math.PI*2:Math.PI*1.5);c.beginPath();c.moveTo(x+Math.cos(a-Math.PI/2)*r*.8,y+Math.sin(a-Math.PI/2)*r*.8);c.lineTo(x+Math.cos(a-Math.PI/2)*r*.92,y+Math.sin(a-Math.PI/2)*r*.92);c.stroke();}
   const f=center?Math.max(-1,Math.min(1,v/max)):Math.max(0,Math.min(1,v/max)),a=center?f*Math.PI*.9:-Math.PI*.75+f*Math.PI*1.5;c.strokeStyle='#fff';c.lineWidth=4;c.beginPath();c.moveTo(x,y);c.lineTo(x+Math.sin(a)*r*.78,y-Math.cos(a)*r*.78);c.stroke();c.fillStyle='#ddd';c.font=`${Math.round(H*.09)}px Arial`;c.textAlign='center';c.fillText(label,x,y+r*.45);c.font=`bold ${Math.round(H*.11)}px "Roboto Mono",monospace`;c.fillText(text,x,y-r*.3);};
  g(0,'KT',d.ias,150,String(Math.round(d.ias)));g(1,'FT',d.alt%1000,1000,String(Math.round(d.alt)));g(2,'M/S',d.vs/196.85,5,(d.vs/196.85).toFixed(1),true);s.tex.needsUpdate=true;}
+/** Modelled flight deck (converted FlightGear deck): placed so the pilot eye is at the camera origin, with the
+ *  display units turned into live canvas screens keyed like the procedural deck's (pfd, nd, ecam …). */
+const DECK_SCREENS:Record<string,string>={'pfd1.screen':'pfd','pfd2.screen':'pfd2','ND.screen':'nd','ND_R.screen':'nd2','uecam.screen':'ecam','lecam.screen':'ecam2'};
+// GLTFLoader strips dots from node names, so match on the sanitised name
+const SCREEN_BY_NAME=Object.fromEntries(Object.entries(DECK_SCREENS).map(([k,v])=>[k.replace(/[.\s]/g,''),v]));
+export function modelDeck(model:THREE.Object3D,eye:[number,number,number]):Deck{
+ const group=new THREE.Group();model.position.set(-eye[0],-eye[1],-eye[2]);group.add(model);const screens:Record<string,Screen>={};
+ model.traverse(o=>{const mesh=o as THREE.Mesh;if(!mesh.isMesh)return;const plain=(n?:string)=>(n??'').replace(/[.\s]/g,''),key=SCREEN_BY_NAME[plain(mesh.name)]??SCREEN_BY_NAME[plain(mesh.parent?.name)];
+  if(key&&!screens[key]){const c=document.createElement('canvas');c.width=c.height=640;const ctx=c.getContext('2d')!;const tex=new THREE.CanvasTexture(c);tex.colorSpace=THREE.SRGBColorSpace;tex.flipY=false;tex.anisotropy=8;
+   mesh.material=new THREE.MeshBasicMaterial({map:tex,toneMapped:false});screens[key]={ctx,tex,w:640,h:640};return;}
+  // other glass screens (MCDU, DCDU …) stay dark glass
+  if(/screen/i.test(mesh.name+(mesh.parent?.name??'')))mesh.material=new THREE.MeshStandardMaterial({color:'#05080a',roughness:.15,metalness:.1});});
+ return{group,screens,update:()=>{}};}

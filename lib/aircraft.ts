@@ -3,7 +3,11 @@
 // They are approximations for a game, not certified data.
 export type AircraftId='trainer'|'pa28'|'ask21'|'twin'|'citation'|'atr42'|'q400'|'crj900'|'e190'|'cs300'|'jet'|'a321'|'b738'|'b752'|'a333'|'b789'|'b773'|'a359'|'b744'|'a380';
 export type Category='Light'|'Glider'|'Turboprop'|'Business jet'|'Regional jet'|'Narrowbody'|'Widebody'|'Jumbo';
-export type ModelInfo={url:string;scale:number;ground:number;heading:number;eye:[number,number,number];cockpit:'airliner'|'ga'|'glider';length:number};
+export type ModelInfo={url:string;scale:number;ground:number;heading:number;eye:[number,number,number];cockpit:'airliner'|'ga'|'glider';length:number;
+ /** Optional modelled flight deck (glTF) and the pilot eye inside it, in the deck file's own coordinates. */
+ deck?:{url:string;eye:[number,number,number]}};
+/** FlightGear models (GPL-2.0), converted from AC3D: detailed textured exteriors and full 3D flight decks. */
+const fgModel=(file:string,ground:number,eye:[number,number,number],length:number,deckEye?:[number,number,number]):ModelInfo=>({url:`/flight/models/fg/${file}.glb`,scale:1,ground,heading:180,eye,cockpit:'airliner',length,...(deckEye?{deck:{url:`/flight/models/fg/${file}-deck.glb`,eye:deckEye}}:{})});
 export type AircraftSpec={
  id:AircraftId;name:string;kind:string;category:Category;summary:string;engine:'piston'|'turboprop'|'jet'|'none';engines:number;
  empty:number;payload:number;fuelMax:number;fuelStart:number;mtow:number;range:number;
@@ -85,7 +89,7 @@ export const AIRCRAFT:Record<AircraftId,AircraftSpec>={
   flapSpeeds:[330,230,210,190,170],vne:330,mmo:.82,cruiseMach:.78,cruiseIas:290,ceiling:41000,cruiseMax:37000,fbw:true,model:fr24('cs300',.0,-16.4,3.0,3.6,38.2)}),
  jet:{...jet({id:'jet',name:'Airbus A320-200',kind:'Narrowbody airliner',category:'Narrowbody',summary:'The classic 150-seat fly-by-wire twinjet. 2 × 120 kN turbofans, Mach 0.78 at FL350, autothrottle and autoland.',engines:2,
   empty:42600,payload:15000,fuelMax:19000,fuelStart:12500,mtow:78000,range:5600,S:122.6,b:35.8,c:4.19,thrust:120e3,gearHeight:2.9,mainArm:1.25,tailStrike:.2,
-  flapSpeeds:[350,230,200,185,177],vne:350,mmo:.82,cruiseMach:.78,cruiseIas:290,ceiling:39800,cruiseMax:37000,fbw:true,model:fr24('a320',.78,-15.8,3.0,3.7,38.3)}),I:[1.25e6,3.1e6,4.2e6],wheelbase:12.6},
+  flapSpeeds:[350,230,200,185,177],vne:350,mmo:.82,cruiseMach:.78,cruiseIas:290,ceiling:39800,cruiseMax:37000,fbw:true,model:fgModel('a320',4.39,[16.19,4.96,.45],37.6,[-.45,.572,-16.193])}),I:[1.25e6,3.1e6,4.2e6],wheelbase:12.6},
  a321:jet({id:'a321',name:'Airbus A321',kind:'Stretched narrowbody',category:'Narrowbody',summary:'200-seat stretched A320. 2 × 147 kN, longer runway and careful rotation — watch the tail.',engines:2,
   empty:48500,payload:18000,fuelMax:18600,fuelStart:13000,mtow:89000,range:5900,S:122.6,b:35.8,c:4.19,thrust:147e3,gearHeight:2.9,mainArm:1.3,tailStrike:.17,
   flapSpeeds:[350,235,215,195,190],vne:350,mmo:.82,cruiseMach:.78,cruiseIas:290,ceiling:39100,cruiseMax:37000,fbw:true,model:fr24('a321',.96,-19.8,3.0,3.7,44.5)}),

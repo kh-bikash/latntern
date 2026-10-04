@@ -1,0 +1,5 @@
+import {airports} from '../lib/worldFlightServer';
+const R:Record<string,[number,number,number,number]>={Luxembourg:[49.416,50.2,5.674,6.589],Strasbourg:[48.43,48.71,7.522,7.9],Clermont:[45.704,45.885,3.041,3.294],Gex:[46.238,46.347,6.036,6.139],Montlucon:[46.296,46.378,2.514,2.641],Moulins:[46.524,46.592,3.296,3.37],Valence:[44.895,44.948,4.866,4.944],StEtienne:[45.398,45.469,4.363,4.413],Aurillac:[44.902,44.944,2.414,2.458],LePuy:[45.025,45.059,3.861,3.93],NRW:[50.32,52.53,5.86,9.46]};
+const list=await airports();
+for(const [n,[s,nn,w,e]] of Object.entries(R)){const hits=list.filter(a=>a.runways.length&&a.runways.some(r=>r.length>=600&&!/^H/.test(r.name))&&[a,...a.runways.flatMap(r=>[{lat:r.lat,lon:r.lon},{lat:r.endLat,lon:r.endLon}])].every(p=>p.lat>s&&p.lat<nn&&p.lon>w&&p.lon<e));
+ console.log(n.padEnd(11),hits.length,hits.sort((x,y)=>Math.max(...y.runways.map(r=>r.length))-Math.max(...x.runways.map(r=>r.length))).slice(0,8).map(a=>`${a.id}(${a.iata||'-'} ${Math.max(...a.runways.map(r=>r.length))}m ${a.type.replace('_airport','')})`).join(' '));}

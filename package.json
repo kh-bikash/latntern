@@ -1,6 +1,6 @@
 {
   "name": "lantern-relay",
-  "version": "6.0.2",
+  "version": "6.1.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -17,6 +17,7 @@
   "dependencies": {
     "@mapbox/vector-tile": "^2.0.5",
     "@neondatabase/serverless": "^1.0.2",
+    "3d-tiles-renderer": "^0.5.3",
     "earcut": "^3.2.4",
     "lucide-react": "^1.31.0",
     "maplibre-gl": "^6.11.2",

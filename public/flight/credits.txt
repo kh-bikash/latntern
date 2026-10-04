@@ -85,3 +85,11 @@ Libraries: CesiumJS, three.js, pbf, @mapbox/vector-tile, earcut, gltf-pipeline a
 HINODE FLIGHT SIMULATOR 6.0 — engine
 Rendering: MapLibre GL JS (BSD-3-Clause) and three.js (MIT). CesiumJS is no longer used.
 Glyphs for map labels: OpenFreeMap fonts (Noto Sans, SIL Open Font License).
+
+Airbus A320 exterior and flight deck: "A320-family" for FlightGear by Josh Davidson (Octal450) and contributors,
+https://github.com/legoboyvdlp/A320-family, GPL-2.0. Converted from AC3D to glTF (meshopt, WebP); Swiss livery.
+
+Photogrammetry scenery (open data, streamed as OGC 3D Tiles):
+- Strasbourg: Photomaillage 2022, Eurométropole de Strasbourg (open data).
+- Clermont-Ferrand: Photomaillage, CRAIG Auvergne-Rhône-Alpes (open data).
+- Luxembourg: Maquette 3D 2020, Administration du cadastre et de la topographie, CC0.

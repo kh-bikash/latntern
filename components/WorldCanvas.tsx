@@ -4,10 +4,12 @@ import type {Map as MapLibreMap,StyleSpecification,GeoJSONSource} from 'maplibre
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {MeshoptDecoder} from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import {buildDeck,drawFcu,drawGliderGauges,type Deck} from './Cockpits';
+import {buildDeck,modelDeck,drawFcu,drawGliderGauges,type Deck} from './Cockpits';
 import {drawPanel,drawPFD,drawND,drawEICAS,type AvionicsData,type NavPoint} from './Avionics';
 import {aircraftModelUrl} from './AircraftModels';
 import {airfieldArt,papiLights,pointsGeoJSON,ThreeClouds,ThreeTraffic,WeatherOverlay,sunElevation,sunAzimuth,type LiveTraffic,type TrafficModel,type Airfield} from './worldScene';
+import {Photoreal} from './photoreal';
+import {photorealAt} from '@/lib/photoreal';
 import {ThreeLayer,wrapModel,type Placed} from './threeLayer';
 import {OsmScenery} from './osmScenery';
 import type {Sim,Telemetry,TimePreset} from './sim';
@@ -56,7 +58,7 @@ async function createEngine(el:HTMLElement,q:Quality):Promise<Engine>{const mapl
  try{maplibregl.addProtocol('flatdem',demProtocol() as never);}catch{}
  const map=new maplibregl.Map({container:el,style:buildStyle(),center:[139.6,35.3],zoom:8,pitch:60,bearing:20,maxPitch:120,maxZoom:23,interactive:false,attributionControl:{compact:true},fadeDuration:q==='performance'?0:150,maxTileCacheSize:q==='performance'?200:600,pixelRatio:q==='performance'?1:q==='high'?Math.min(2,devicePixelRatio):Math.min(1.5,devicePixelRatio),canvasContextAttributes:{antialias:q!=='performance',powerPreference:'high-performance'}});
  await new Promise<void>(res=>map.once('load',()=>res()));
- const layer=new ThreeLayer((lon,lat,alt)=>maplibregl.MercatorCoordinate.fromLngLat([lon,lat],alt));map.addLayer(layer);const scenery=new OsmScenery(layer,q);
+ const layer=new ThreeLayer((lon,lat,alt)=>maplibregl.MercatorCoordinate.fromLngLat([lon,lat],alt));layer.photoreal=new Photoreal(layer);map.addLayer(layer);const scenery=new OsmScenery(layer,q);
  let lastKey='';const setTime=(date:Date,lat:number,lon:number,vis:number)=>{const el2=sunElevation(date,lat,lon),az=sunAzimuth(date,lat,lon),day=clamp((el2+4)/14,0,1),dusk=clamp(1-Math.abs(el2-2)/10,0,1),fog=clamp(1-vis/30000,0,1);
   layer.setSun(az,el2,day);scenery.setLight(az,el2,day);const key=`${day.toFixed(2)}|${dusk.toFixed(2)}|${fog.toFixed(2)}`;if(key!==lastKey){lastKey=key;
    const hz=blend(blend([18,24,40],[214,230,242],day),[246,170,110],dusk*.7);
@@ -65,7 +67,13 @@ async function createEngine(el:HTMLElement,q:Quality):Promise<Engine>{const mapl
   return{sunEl:el2,day};};
  return{map,layer,scenery,setTime};}
 /** Camera placed at a position with heading, pitch (0 = level) and roll, in MapLibre's free-camera terms. */
-function placeCamera(map:MapLibreMap,lat:number,lon:number,alt:number,heading:number,pitchDeg:number,roll:number){try{map.jumpTo(map.calculateCameraOptionsFromCameraLngLatAltRotation([lon,lat],alt,heading,clamp(90+pitchDeg,0,120),roll));}catch{}}
+/** Mid-point of the longest runway, the photogrammetry height reference (an airport's reference point can sit on a roof). */
+function runwayReference(a:Airport){const r=[...a.runways].sort((x,y)=>y.length-x.length)[0];return r?{lat:(r.lat+r.endLat)/2,lon:(r.lon+r.endLon)/2,elevation:a.elevation}:{lat:a.lat,lon:a.lon,elevation:a.elevation};}
+/** Free camera. MapLibre scales its near plane with the distance to the map center (height/50), which clips the
+ *  aircraft in a shallow chase view at altitude; keep the far plane MapLibre computes and pull the near plane in to ~3 m. */
+function placeCamera(map:MapLibreMap,lat:number,lon:number,alt:number,heading:number,pitchDeg:number,roll:number){try{map.jumpTo(map.calculateCameraOptionsFromCameraLngLatAltRotation([lon,lat],alt,heading,clamp(90+pitchDeg,0,120),roll));
+ const tr=(map as unknown as {transform?:{clearNearFarZOverride?:()=>void;overrideNearFarZ?:(n:number,f:number)=>void;nearZ:number;farZ:number;_helper?:{_pixelPerMeter?:number}}}).transform,ppm=tr?._helper?._pixelPerMeter;
+ if(tr?.clearNearFarZOverride&&tr.overrideNearFarZ&&ppm){tr.clearNearFarZOverride();tr.overrideNearFarZ(Math.min(tr.nearZ,3*ppm),tr.farZ);}}catch{}}
 export default function WorldCanvas(props:Props){
  const mount=useRef<HTMLDivElement>(null),cockpitMount=useRef<HTMLDivElement>(null),panelRef=useRef<HTMLCanvasElement>(null),fxRef=useRef<HTMLCanvasElement>(null),live=useRef(props);live.current=props;const engineRef=useRef<Promise<Engine>|null>(null);
  const [loading,setLoading]=useState<string|null>('Loading the map…');const loadingRef=useRef(loading);loadingRef.current=loading;const setLoadingNull=()=>{loadingRef.current=null;setLoading(null);};
@@ -73,7 +81,7 @@ export default function WorldCanvas(props:Props){
  useEffect(()=>{if(!mount.current)return;const p=createEngine(mount.current,live.current.quality??'balanced');engineRef.current=p;let dead=false,frame=0,orbit=0,last=performance.now(),timeAt=0;
   void p.then(e=>{if(dead)return;setLoadingNull();const tick=(now:number)=>{if(dead)return;frame=requestAnimationFrame(tick);const dt=Math.min(.1,(now-last)/1000);last=now;if(live.current.room)return;const pv=live.current.preview;
    if(now-timeAt>3000&&pv){timeAt=now;e.setTime(new Date(),pv.lat,pv.lon,40000);}
-   if(pv){orbit+=dt*2.5;const h=pv.heading+150+orbit,c=geoMove(pv.lat,pv.lon,h+180,2400);e.layer.center={lon:pv.lon,lat:pv.lat};placeCamera(e.map,c.lat,c.lon,pv.elevation+700,h,-16,0);e.scenery.update(pv.lat,pv.lon,600,true);e.layer.repaint();}
+   if(pv){orbit+=dt*2.5;const h=pv.heading+150+orbit,c=geoMove(pv.lat,pv.lon,h+180,2400);e.layer.center={lon:pv.lon,lat:pv.lat};placeCamera(e.map,c.lat,c.lon,pv.elevation+700,h,-16,0);e.layer.photoreal?.setReference({lat:pv.lat,lon:pv.lon,elevation:pv.elevation});e.scenery.update(pv.lat,pv.lon,600,true);e.layer.repaint();}
    else e.map.setBearing(e.map.getBearing()+dt*1.5);};frame=requestAnimationFrame(tick);}).catch(err=>{setLoadingNull();live.current.onError(err instanceof Error?err.message:'The map could not start.');});
   return()=>{dead=true;cancelAnimationFrame(frame);void p.then(e=>{e.scenery.destroy();e.map.remove();}).catch(()=>{});};},[]);
  // One flight on the shared map: aircraft, airfields, scenery, cockpit, physics and systems.
@@ -99,15 +107,18 @@ export default function WorldCanvas(props:Props){
    const half=a.b/2/m.scale,len=m.length/m.scale,navL=pt(-half,-len*.05,0,'#ff2a2a',5),navR=pt(half,-len*.05,0,'#2aff5a',5),tail=pt(0,-len*.5,.5,'#ffffff',4),beacon=pt(0,0,len*.06,'#ff2020',6),strobes=[pt(-half,-len*.06,0,'#ffffff',8),pt(half,-len*.06,0,'#ffffff',8)],landing=pt(0,len*.42,-.4,'#fffbe8',9);
    const fields=new Set<string>();let lights:{lat:number;lon:number;color:string;size:number}[]=[],papi:{lat:number;lon:number;angle:number;alt:number}[]=[];const imageIds:string[]=[];
    const addField=(ap:Airfield,detail:boolean,landingRw?:string)=>{if(fields.has(ap.id))return;fields.add(ap.id);const f=airfieldArt(ap,detail,landingRw);lights=lights.concat(f.lights);papi=papi.concat(f.papi);
-    for(const img of f.images){if(map.getSource(img.id))continue;map.addSource(img.id,{type:'image',url:img.url,coordinates:img.coordinates});map.addLayer({id:img.id,type:'raster',source:img.id,paint:{'raster-fade-duration':0}},'night');imageIds.push(img.id);}
+    // photogrammetry airports already show the real runway, taxiways and markings: keep only lights and PAPI
+    if(!ap.runways.some(r=>photorealAt(r.lat,r.lon)))for(const img of f.images){if(map.getSource(img.id))continue;map.addSource(img.id,{type:'image',url:img.url,coordinates:img.coordinates});map.addLayer({id:img.id,type:'raster',source:img.id,paint:{'raster-fade-duration':0}},'night');imageIds.push(img.id);}
     (map.getSource('lights') as GeoJSONSource).setData(pointsGeoJSON(lights));};
-   addField(room!.departure,true,room!.runway);addField(room!.arrival,true,sim!.plan.arrival.ident);
+   layer.photoreal?.setReference(runwayReference(room!.departure));addField(room!.departure,true,room!.runway);addField(room!.arrival,true,sim!.plan.arrival.ident);
    cleanups.push(()=>{for(const id of imageIds){if(map.getLayer(id))map.removeLayer(id);if(map.getSource(id))map.removeSource(id);}for(const s of ['lights','papi','labels'])(map.getSource(s) as GeoJSONSource|undefined)?.setData(EMPTY);});
    const clouds=new ThreeClouds(layer),traffic=new ThreeTraffic(layer,trafficModel);let remote:Placed|undefined,remoteKind='';cleanups.push(()=>{clouds.destroy();traffic.destroy();if(remote)layer.remove(remote,false);});
    const overlay=fxRef.current?new WeatherOverlay(fxRef.current):null;cleanups.push(()=>{const c=fxRef.current;c?.getContext('2d')?.clearRect(0,0,c.width,c.height);});
    // Flight deck: a 3D cockpit for the aircraft class, drawn over the map from the pilot's eye.
    renderer=new THREE.WebGLRenderer({alpha:true,antialias:true});renderer.setPixelRatio(Math.min(1.5,devicePixelRatio));renderer.setClearColor(0,0);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1;cockpitMount.current?.appendChild(renderer.domElement);
-   const built=buildDeck(m.cockpit,renderer,{sidestick:a.fbw&&/Airbus/.test(a.name),engines:a.engines,airbus:/Airbus/.test(a.name)}),deck:Deck=built.deck;cockpitScene=built.scene;const camera3=new THREE.PerspectiveCamera(70,1,.03,40);
+   const built=buildDeck(m.cockpit,renderer,{sidestick:a.fbw&&/Airbus/.test(a.name),engines:a.engines,airbus:/Airbus/.test(a.name)});let deck:Deck=built.deck;cockpitScene=built.scene;const camera3=new THREE.PerspectiveCamera(70,1,.03,40);
+   // aircraft with a modelled flight deck replace the procedural one once it has loaded
+   if(m.deck){const deckInfo=m.deck;void loader.loadAsync(deckInfo.url).then(g=>{if(dead||!cockpitScene)return;const md=modelDeck(g.scene,deckInfo.eye);deck.group.visible=false;cockpitScene.add(md.group);deck=md;}).catch(()=>{});}
    let plane:WorldPlane={...room!.planes[room!.seat]},recovery=plane.recovery,last=performance.now(),send=0,telemetryAt=0,elapsed=0,ground=room!.departure.elevation,water=false,groundReady=false,groundRequest=0,terrainNotice=false,lastTime='',panelAt=0,cloudAt=0,wxAt=0,wxPos={lat:999,lon:999},trafficAt=0,nearAt={lat:999,lon:999},flash=0,lastRadio=99999,callouts=new Set<string>(),gpwsAt=0,sceneryAt=0,papiAt=0,labelAt=0,simClock=Date.now(),sunInfo={sunEl:30,day:1};
    const airports:Airport[]=[room!.departure,room!.arrival];let metars:Metar[]=[],modelWx:any=null,nearby:Airport[]=[];
    const refreshWeather=async()=>{wxPos={lat:plane.lat,lon:plane.lon};const [mt,w]=await Promise.all([loadMetars([room!.departure.id,room!.arrival.id],plane),sim!.settings.weather==='live'?loadModel(plane.lat,plane.lon):Promise.resolve(null)]);if(dead)return;metars=mt;modelWx=w;if(sim!.settings.weather!=='live'||metars.length||modelWx)sim!.wx=weatherAt(sim!.settings.weather,plane,metars,modelWx,ground);};
@@ -171,7 +182,7 @@ export default function WorldCanvas(props:Props){
     layer.repaint();
     // Cockpit overlay.
     const host=mount.current!,size=host.getBoundingClientRect();if(renderer.domElement.width!==Math.round(size.width*renderer.getPixelRatio())||renderer.domElement.height!==Math.round(size.height*renderer.getPixelRatio())){renderer.setSize(size.width,size.height);camera3.aspect=size.width/size.height;camera3.updateProjectionMatrix();}
-    camera3.rotation.set((look.pitch-3)*rad,-look.yaw*rad,0,'YXZ');camera3.fov=clamp(52/look.zoom,18,80)*1.18;camera3.updateProjectionMatrix();cockpitMount.current!.style.display=camCockpit?'block':'none';
+    camera3.rotation.set((look.pitch-3)*rad,-look.yaw*rad,0,'YXZ');camera3.fov=clamp(52/look.zoom,18,80)*(m.deck?1:1.18);camera3.updateProjectionMatrix();cockpitMount.current!.style.display=camCockpit?'block':'none';
     // Avionics, warnings, callouts and telemetry.
     const mass=aircraftMass(a,plane.fuel),vs=vSpeeds(a,mass),alt=indicatedAlt(plane,wx,ap)/ft,radio=Math.max(0,agl/ft),ias=(plane.ias??0)/kt,wind=windAt(wx,plane.alt),atm=atmosphere(plane.alt,wx??undefined),vsFpm=plane.vertical*196.85,big=a.mtow>15000;
     const flapIdx=a.flapDetents.reduce((b,x,k)=>Math.abs(x-plane.flaps)<Math.abs(a.flapDetents[b]-plane.flaps)?k:b,0),vfe=a.flapSpeeds[flapIdx]??a.vne,vmax=Math.min(a.vne,a.mmo<1?a.mmo/Math.max(.1,plane.mach??.1)*ias:999);

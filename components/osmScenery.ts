@@ -1,5 +1,6 @@
 // Streams OpenStreetMap 3D scenery (buildings, forests, aprons, taxiways) around the aircraft from OpenFreeMap
 // vector tiles. Geometry is built in a worker and drawn as one batched three.js mesh per tile.
+import {photorealAt} from '@/lib/photoreal';
 import * as THREE from 'three';
 import {terrainTile} from '@/lib/worldTerrain';
 import type {ThreeLayer,Placed} from './threeLayer';
@@ -20,7 +21,10 @@ export class OsmScenery{private worker:Worker;private tiles=new Map<string,{plac
  constructor(private layer:ThreeLayer,public quality:'performance'|'balanced'|'high'){this.worker=new Worker('/flight/osm-worker.js',{type:'module'});this.worker.onmessage=(e:MessageEvent<Result>)=>{this.pending.get(e.data.id)?.(e.data);this.pending.delete(e.data.id);};}
  setLight(azimuth:number,elevation:number,day:number){const a=azimuth*Math.PI/180,e=Math.max(.05,elevation*Math.PI/180);(this.material.uniforms.uSun.value as THREE.Vector3).set(Math.sin(a)*Math.cos(e),Math.cos(a)*Math.cos(e),Math.sin(e));this.material.uniforms.uDay.value=day;}
  /** Keep tiles loaded around a position; detail depends on height above ground. */
- update(lat:number,lon:number,agl:number,single=false){const n=2**Z,fx=(lon+180)/360*n,fy=(1-Math.asinh(Math.tan(lat*Math.PI/180))/Math.PI)/2*n,x0=Math.floor(fx),y0=Math.floor(fy),radius=single||agl>3500?0:this.quality==='high'&&agl<1800?2:1,want=new Set<string>();
+ update(lat:number,lon:number,agl:number,single=false){
+  // inside photogrammetry coverage the real mesh carries the buildings and trees
+  if(photorealAt(lat,lon)){for(const [k,t] of this.tiles){if(t.placed){this.layer.remove(t.placed,false);t.placed=undefined;}if(!t.loading)this.tiles.delete(k);}return;}
+  const n=2**Z,fx=(lon+180)/360*n,fy=(1-Math.asinh(Math.tan(lat*Math.PI/180))/Math.PI)/2*n,x0=Math.floor(fx),y0=Math.floor(fy),radius=single||agl>3500?0:this.quality==='high'&&agl<1800?2:1,want=new Set<string>();
   if(agl<6000)for(let dy=-radius;dy<=radius;dy++)for(let dx=-radius;dx<=radius;dx++){if(dx*dx+dy*dy>radius*radius+1)continue;const x=((x0+dx)%n+n)%n,y=y0+dy,k=`${x}/${y}`;want.add(k);if(!this.tiles.has(k))this.tiles.set(k,{loading:false,x,y});}
   const queue=[...this.tiles.entries()].filter(([k,t])=>want.has(k)&&!t.placed&&!t.loading).sort((a,b)=>Math.hypot(a[1].x+.5-fx,a[1].y+.5-fy)-Math.hypot(b[1].x+.5-fx,b[1].y+.5-fy));
   for(const [k,t] of queue){if(this.active>=2)break;void this.load(k,t);}
