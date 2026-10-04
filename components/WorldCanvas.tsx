@@ -76,6 +76,8 @@ function runwayReference(a:Airport){const r=[...a.runways].sort((x,y)=>y.length-
 /** Free camera. MapLibre scales its near plane with the distance to the map center (height/50), which clips the
  *  aircraft in a shallow chase view at altitude; keep the far plane MapLibre computes and pull the near plane in to ~3 m. */
 function placeCamera(map:MapLibreMap,lat:number,lon:number,alt:number,heading:number,pitchDeg:number,roll:number){try{
+ // never below the ground MapLibre knows about: an underground camera renders a black frame
+ const under=map.queryTerrainElevation([lon,lat]);if(under&&alt<under+1.5)alt=under+1.5;
  // MapLibre cannot draw the ground past 90° pitch (the ground vanishes or smears into walls), so it is held at 85° and
  // any further upward look becomes a lens shift (off-centre projection) that moves the horizon down the screen.
  const want=clamp(90+pitchDeg,0,125),pitch=Math.min(want,85),tr=(map as unknown as {_camera?:{transform?:{fov:number}}})._camera?.transform;
@@ -130,14 +132,16 @@ export default function WorldCanvas(props:Props){
    const airports:Airport[]=[room!.departure,room!.arrival];let metars:Metar[]=[],modelWx:any=null,nearby:Airport[]=[];
    const refreshWeather=async()=>{wxPos={lat:plane.lat,lon:plane.lon};const [mt,w]=await Promise.all([loadMetars([room!.departure.id,room!.arrival.id],plane),sim!.settings.weather==='live'?loadModel(plane.lat,plane.lon):Promise.resolve(null)]);if(dead)return;metars=mt;modelWx=w;if(sim!.settings.weather!=='live'||metars.length||modelWx)sim!.wx=weatherAt(sim!.settings.weather,plane,metars,modelWx,ground);};
    sim!.wx??=weatherAt(sim!.settings.weather,plane,[],null,room!.departure.elevation);void refreshWeather();
-   const terrainAt=(lat:number,lon:number)=>map.queryTerrainElevation([lon,lat])??ground;
+   // MapLibre answers 0 (not null) where terrain has not loaded yet; taken literally that put the chase camera's ground
+   // floor at sea level, i.e. underground at inland airports (black screen), so 0 counts as unknown away from the coast
+   const terrainAt=(lat:number,lon:number)=>{const e=map.queryTerrainElevation([lon,lat]);return e==null||(e===0&&Math.abs(ground)>2)?ground:e;};
    const readyBy=performance.now()+4500;E.scenery.update(plane.lat,plane.lon,Math.max(0,plane.alt-ground));
    const render=(now:number)=>{if(dead||!renderer||!cockpitScene)return;frame=requestAnimationFrame(render);const P=live.current,r=P.room,S=P.sim;if(!r||!S)return;const realDt=Math.min(.25,(now-last)/1000);last=now;
     if(loadingRef.current&&(groundReady&&map.areTilesLoaded()||now>readyBy))setLoadingNull();
     const rate=P.shared?1:clamp(S.settings.simRate,1,16),dt=realDt*rate,i=S.input,ap=S.ap,wx=S.wx;
     if(r.planes[r.seat].recovery!==recovery){plane={...r.planes[r.seat]};recovery=plane.recovery;ground=r.departure.elevation;look.yaw=look.pitch=0;S.ap=newAutopilot(Math.round(plane.heading),S.plan.cruiseFt,ap.spd,ap.baro);S.plan.active=1;Object.assign(i,{throttle:0,flaps:plane.flaps,gear:true,engine:plane.engine,spoilers:0,reverse:false,parking:false});callouts.clear();}
     // Terrain below the aircraft: rendered map elevation first, sampled open terrain as fallback; airports flattened in both.
-    const h=map.queryTerrainElevation([plane.lon,plane.lat]);if(h!==null&&h!==undefined){ground=h;groundReady=true;}
+    const h0=map.queryTerrainElevation([plane.lon,plane.lat]),h=h0===0?null:h0;if(h!==null&&h!==undefined){ground=h;groundReady=true;}// 0 = not loaded (or sea): the sampler below decides
     if(now-groundRequest>1000){groundRequest=now;void groundInfo(plane.lat,plane.lon).then(gi=>{if(dead)return;water=gi.water;if(h===null||h===undefined){ground=gi.height;groundReady=true;}}).catch(()=>{if(!terrainNotice){P.onError('Some terrain tiles are unavailable. Scenery will retry; avoid low flight until terrain loads.');terrainNotice=true;}});}
     const pad=navigator.getGamepads?.().find(gp=>gp?.connected),axis=(k:number)=>pad&&Math.abs(pad.axes[k]??0)>.12?pad.axes[k]:0;
     const expo=(x:number)=>x*(.3+.7*x*x);smooth.p=ramp(smooth.p,clamp(((keys.has('KeyS')||keys.has('ArrowDown')?1:0)-(keys.has('KeyW')||keys.has('ArrowUp')?1:0))*(S.settings.invertPitch?-1:1)+S.touch.pitch,-1,1),realDt);smooth.r=ramp(smooth.r,clamp((keys.has('KeyD')||keys.has('ArrowRight')?1:0)-(keys.has('KeyA')||keys.has('ArrowLeft')?1:0)+S.touch.roll,-1,1),realDt);smooth.y=ramp(smooth.y,clamp((keys.has('KeyX')?1:0)-(keys.has('KeyZ')?1:0)+(pad?.buttons[5]?.pressed?1:0)-(pad?.buttons[4]?.pressed?1:0),-1,1),realDt);
@@ -184,7 +188,7 @@ export default function WorldCanvas(props:Props){
      map.setVerticalFieldOfView(clamp(52/look.zoom,18,80));placeCamera(map,eye2.lat,eye2.lon,plane.alt+up*Math.cos(plane.pitch)+f*Math.sin(plane.pitch),plane.heading+look.yaw,plane.pitch/rad+look.pitch-3,-plane.roll/rad);}
     else if(cam===3){const twr=[...airports].sort((x,y)=>geoDistance(plane,x)-geoDistance(plane,y))[0],tp=geoMove(twr.lat,twr.lon,45,350),talt=twr.elevation+45,d=geoDistance(tp,plane),brg=geoBearing(tp,plane),pitch=Math.atan2(plane.alt-talt,Math.max(1,d))/rad;map.setVerticalFieldOfView(clamp(Math.atan2(m.length*2,d)*2/rad,2,45));placeCamera(map,tp.lat,tp.lon,talt,brg,pitch,0);}
     else{map.setVerticalFieldOfView(36.87);if(cam===2&&!drag)look.orbit+=realDt*6;const k=Math.min(1,realDt*2.2);if(Number.isNaN(camSpring.h))camSpring.h=plane.heading;camSpring.h+=(((plane.heading-camSpring.h+540)%360)-180)*k;camSpring.p+=(clamp(plane.pitch,-.35,.35)*.35-camSpring.p)*k;camSpring.range+=(chase*look.zoom*(cam===2?1.6:1)*(1+Math.min(.25,plane.speed/900))-camSpring.range)*Math.min(1,realDt*3);
-     const hdg=camSpring.h+look.orbit+(cam===2?70:0),elev=(7+(cam===2?14:0)-look.pitch)*rad+camSpring.p,horiz=camSpring.range*Math.cos(elev),pos=geoMove(plane.lat,plane.lon,hdg+180,horiz);let calt=plane.alt+camSpring.range*Math.sin(elev);const tg=terrainAt(pos.lat,pos.lon);if(calt<tg+3)calt=tg+3;
+     const hdg=camSpring.h+look.orbit+(cam===2?70:0),elev=(7+(cam===2?14:0)-look.pitch)*rad+camSpring.p,horiz=camSpring.range*Math.cos(elev),pos=geoMove(plane.lat,plane.lon,hdg+180,horiz);let calt=plane.alt+camSpring.range*Math.sin(elev);const tg=Math.max(terrainAt(pos.lat,pos.lon),ground);if(calt<tg+3)calt=tg+3;
      map.setVerticalFieldOfView(42);placeCamera(map,pos.lat,pos.lon,calt,hdg,-Math.atan2(calt-plane.alt,Math.max(1,horiz))/rad,0);}
     layer.repaint();
     // Cockpit overlay.
