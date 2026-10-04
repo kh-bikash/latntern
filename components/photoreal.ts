@@ -31,6 +31,8 @@ interface Source{group:THREE.Object3D;update(cam:THREE.PerspectiveCamera,width:n
 function tilesSource(region:PhotorealRegion,u:Shared,cam:THREE.PerspectiveCamera):Source{
  // Open servers are latency-bound: request more tiles in parallel and skip siblings.
  const tiles=new TilesRenderer(region.url);tiles.errorTarget=12;tiles.fetchOptions={mode:'cors'};tiles.loadSiblings=false;tiles.downloadQueue.maxJobsPerOrigin=48;
+ // texture-heavy city meshes fill the default 0.4 GB cache with coarse parents before the airfield's detail loads
+ tiles.lruCache.minBytesSize=.9e9;tiles.lruCache.maxBytesSize=1.2e9;
  if(region.gltf1)tiles.registerPlugin({name:'GLTF1_B3DM',parseTile:(buffer:ArrayBuffer,tile:unknown,ext:string,url:string,signal:AbortSignal)=>isGltf1B3dm(buffer)?(tiles as unknown as {parseTile:(...a:unknown[])=>Promise<unknown>}).parseTile(convertGltf1B3dm(buffer),tile as never,ext,url,signal):null} as never);
  tiles.addEventListener('load-model',(e:{scene:THREE.Object3D;tile:{geometricError:number}})=>{const coarse=e.tile.geometricError>MAX_SHOWN_ERROR;e.scene.traverse(o=>{if(coarse)o.visible=false;const mesh=o as THREE.Mesh;if(!mesh.isMesh)return;const old=mesh.material as THREE.MeshStandardMaterial;mesh.material=flatEarthMaterial(old.map??null,u);old.dispose();});});
  tiles.setCamera(cam);
