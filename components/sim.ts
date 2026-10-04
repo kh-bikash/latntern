@@ -8,7 +8,7 @@ import type {Weather,WeatherPreset} from '@/lib/weather';
 export type TimePreset='live'|'dawn'|'morning'|'noon'|'afternoon'|'sunset'|'night';
 export const TIME_PRESETS:{id:TimePreset;label:string}[]=[{id:'live',label:'Real time'},{id:'dawn',label:'Dawn'},{id:'morning',label:'Morning'},{id:'noon',label:'Midday'},{id:'afternoon',label:'Afternoon'},{id:'sunset',label:'Sunset'},{id:'night',label:'Night'}];
 export type Settings={weather:WeatherPreset;time:TimePreset;traffic:boolean;simRate:number;unlimitedFuel:boolean;autoRudder:boolean;stability:boolean;quality:'performance'|'balanced'|'high';voice:boolean;callouts:boolean;invertPitch:boolean};
-export const DEFAULT_SETTINGS:Settings={weather:'live',time:'live',traffic:true,simRate:1,unlimitedFuel:false,autoRudder:true,stability:true,quality:'balanced',voice:true,callouts:true,invertPitch:false};
+export const DEFAULT_SETTINGS:Settings={weather:'live',time:'afternoon',traffic:true,simRate:1,unlimitedFuel:false,autoRudder:true,stability:true,quality:'balanced',voice:true,callouts:true,invertPitch:false};
 export type SimInput=WorldInput&{spoilers:number;reverse:boolean;parking:boolean;autobrake:number};
 export type Telemetry={plane:WorldPlane;agl:number;altInd:number;remaining:number;bearing:number;elapsed:number;terrainReady:boolean;wx:Weather|null;wind:{dir:number;speed:number};oat:number;nextWp:string;distNext:number;warnings:string[];cautions:string[];traffic:number;input:SimInput;ap:Autopilot;rate:number;night:boolean};
 export type Sim={input:SimInput;touch:{pitch:number;roll:number;brake:boolean};ap:Autopilot;plan:FlightPlan;atc:AtcController;wx:Weather|null;settings:Settings;snap:AtcSnap|null;touchdowns:Touchdown[];atcLines:AtcLine[];metarDep:string;metarArr:string;aircraft:AircraftId};

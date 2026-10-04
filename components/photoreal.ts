@@ -62,7 +62,7 @@ class RegionTiles{
   this.src.update(this.lod,pose.width,pose.height);this.calibrate();
   // curvature / bias uniforms in layer (mercator, centre-relative) units; the layer re-places the ENU frame after this
   const a=layer.merc(this.anchor.lon,this.anchor.lat,0),c=layer.merc(layer.center.lon,layer.center.lat,0),k=a.meterInMercatorCoordinateUnits();
-  this.u.anchor.value.set(a.x-c.x,a.y-c.y);this.u.curv.value=1/(2*R_EARTH*k);this.u.day.value=day;this.u.k.value=k;
+  this.u.anchor.value.set(a.x-c.x,a.y-c.y);this.u.curv.value=1/(2*R_EARTH*k);this.u.day.value=.3+.7*day;this.u.k.value=k;
   const cm=layer.merc(pose.lon,pose.lat,pose.alt);this.u.cam.value.set(cm.x-c.x,cm.y-c.y,cm.z-c.z);}
  /** NRW heights are sea-level (DHHN2016) already; other meshes are not reliably consistent: measure the mesh at the reference runway and shift it
   *  so the real runway sits at the published elevation (the frame is rigid here, so the ray is in anchor metres). */

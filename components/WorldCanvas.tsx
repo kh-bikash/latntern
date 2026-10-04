@@ -64,9 +64,9 @@ async function createEngine(el:HTMLElement,q:Quality):Promise<Engine>{const mapl
  const layer=new ThreeLayer((lon,lat,alt)=>maplibregl.MercatorCoordinate.fromLngLat([lon,lat],alt));layer.photoreal=new Photoreal(layer);map.addLayer(layer);const scenery=new OsmScenery(layer,q);
  let lastKey='';const setTime=(date:Date,lat:number,lon:number,vis:number)=>{const el2=sunElevation(date,lat,lon),az=sunAzimuth(date,lat,lon),day=clamp((el2+4)/14,0,1),dusk=clamp(1-Math.abs(el2-2)/10,0,1),fog=clamp(1-vis/30000,0,1);
   layer.setSun(az,el2,day);scenery.setLight(az,el2,day);const key=`${day.toFixed(2)}|${dusk.toFixed(2)}|${fog.toFixed(2)}`;if(key!==lastKey){lastKey=key;
-   const hz=blend(blend([18,24,40],[214,230,242],day),[246,170,110],dusk*.7);
-   map.getContainer().style.background=css(hz);map.setSky({'sky-color':css(blend([6,10,22],[91,155,224],day)),'horizon-color':css(hz),'fog-color':css(blend([20,24,32],[214,224,232],day)),'sky-horizon-blend':.6,'horizon-fog-blend':.55+fog*.4,'fog-ground-blend':Math.max(.08,.75-fog*.7),'atmosphere-blend':['interpolate',['linear'],['zoom'],0,1,8,1,11,0]} as never);
-   for(const id of ['sat','ign'])if(map.getLayer(id))map.setPaintProperty(id,'raster-brightness-max',.12+.88*day);// city-light glow is a zoom-8 picture: right for cruise, a smear over the airfield, so it fades out on the way down
+   const hz=blend(blend([34,46,72],[214,230,242],day),[246,170,110],dusk*.7);
+   map.getContainer().style.background=css(hz);map.setSky({'sky-color':css(blend([14,22,44],[91,155,224],day)),'horizon-color':css(hz),'fog-color':css(blend([30,36,50],[214,224,232],day)),'sky-horizon-blend':.6,'horizon-fog-blend':.55+fog*.4,'fog-ground-blend':Math.max(.08,.75-fog*.7),'atmosphere-blend':['interpolate',['linear'],['zoom'],0,1,8,1,11,0]} as never);
+   for(const id of ['sat','ign'])if(map.getLayer(id))map.setPaintProperty(id,'raster-brightness-max',.3+.7*day);// moonlit floor: night stays readable// city-light glow is a zoom-8 picture: right for cruise, a smear over the airfield, so it fades out on the way down
    map.setPaintProperty('night','raster-opacity',['interpolate',['linear'],['zoom'],10,(1-day)*.85,13,0]);map.setPaintProperty('lights','circle-opacity',day<.55||vis<5000?1:0);}
   return{sunEl:el2,day};};
  return{map,layer,scenery,setTime};}
