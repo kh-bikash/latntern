@@ -20,12 +20,16 @@ function applyFlats(h:Float32Array,x:number,y:number,level:number,size=65,div=64
    const outA=Math.max(0,-along-120,along-len-120),outC=Math.max(0,cross-f.width/2-90),d=Math.hypot(outA,outC),k=d<=0?1:Math.max(0,1-d/380);if(k>w){w=k;target=f.elev;}}
   if(w>0){const p=j*size+i;h[p]=h[p]*(1-w*w*(3-2*w))+target*w*w*(3-2*w);}}}}
 const flatsNear=(x:number,y:number,level:number)=>{const n=2**level,west=tileLon(x,n),east=tileLon(x+1,n),north=tileLat(y,n),south=tileLat(y+1,n),pad=.02;return flats.some(f=>Math.max(f.lat,f.endLat)+pad>south&&Math.min(f.lat,f.endLat)-pad<north&&Math.max(f.lon,f.endLon)+pad>west&&Math.min(f.lon,f.endLon)-pad<east);};
+/** MapLibre raster-dem encoding produced by demProtocol (see there). */
+export const DEM_ENCODING={encoding:'custom' as const,redFactor:4,greenFactor:1/64,blueFactor:0,baseShift:500};
 /** MapLibre elevation protocol: Terrarium tiles with the sea floor clamped to sea level and airports flattened. */
 export function demProtocol(){return async(params:{url:string},abort:AbortController)=>{const [z,x,y]=params.url.replace('flatdem://','').split('/').map(Number),res=await fetch(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`,{signal:abort.signal});if(!res.ok)throw new Error(`dem ${res.status}`);const buf=await res.arrayBuffer();
  const px=pngRGBA(buf),n=2**z,midLat=tileLat(y+.5,n),midLon=tileLon(x+.5,n),polder=midLat>51.2&&midLat<53.7&&midLon>3.2&&midLon<7.3,floor=polder?-7:0,sea=polder?-8:-1.2,flat=z>=10&&flatsNear(x,y,z);
  let changed=false;const h=new Float32Array(256*256);for(let k=0;k<h.length;k++){const v=px[k*4]*256+px[k*4+1]+px[k*4+2]/256-32768;h[k]=v<sea?0:Math.max(floor,v);if(h[k]!==v)changed=true;}
- if(flat){applyFlats(h,x,y,z,256,256,.5);changed=true;}if(!changed)return{data:buf};
- for(let k=0;k<h.length;k++){const v=h[k]+32768;px[k*4]=Math.floor(v/256);px[k*4+1]=Math.floor(v)%256;px[k*4+2]=Math.floor((v-Math.floor(v))*256);px[k*4+3]=255;}const png=encodePng({width:256,height:256,data:px,channels:4,depth:8});return{data:png.buffer.slice(png.byteOffset,png.byteOffset+png.byteLength)};};}
+ if(flat)applyFlats(h,x,y,z,256,256,.5);void changed;
+ // re-encode noise-tolerantly (MapLibre 'custom' encoding, DEM_ENCODING): height = R·4 + G/64 − 500 m, so a ±1 flick in
+ // any channel (Brave's canvas randomisation inside MapLibre's decoder) moves the ground at most 4 m, not 256 m
+ for(let k=0;k<h.length;k++){const v=Math.max(0,Math.min(1023.98,h[k]+500)),r=Math.floor(v/4);px[k*4]=r;px[k*4+1]=Math.min(255,Math.round((v-r*4)*64));px[k*4+2]=0;px[k*4+3]=255;}const png=encodePng({width:256,height:256,data:px,channels:4,depth:8});return{data:png.buffer.slice(png.byteOffset,png.byteOffset+png.byteLength)};};}
 export async function terrainTile(x:number,y:number,level:number):Promise<Tile>{const key=`${level}/${x}/${y}`;let known=tiles.get(key);if(known)return known;known=(async()=>{const res=await fetch(`https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${key}.png`);if(!res.ok)throw new Error('Open terrain service is unavailable.');const rgba=pngRGBA(await res.arrayBuffer()),heights=new Float32Array(65*65),raw=new Float32Array(65*65);
  const n=2**level,midLat=tileLat(y+.5,n),midLon=tileLon(x+.5,n),polder=midLat>51.2&&midLat<53.7&&midLon>3.2&&midLon<7.3,sea=polder?-8:-1.2;
  for(let j=0;j<65;j++)for(let i=0;i<65;i++){const p=(Math.round(j/64*255)*256+Math.round(i/64*255))*4,v=rgba[p]*256+rgba[p+1]+rgba[p+2]/256-32768;raw[j*65+i]=v;heights[j*65+i]=v<sea?0:Math.max(polder?-7:0,v);}

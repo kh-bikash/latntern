@@ -14,7 +14,7 @@ import {ThreeLayer,wrapModel,cameraHint,type Placed} from './threeLayer';
 import {OsmScenery} from './osmScenery';
 import type {Sim,Telemetry,TimePreset} from './sim';
 import {AircraftAudio,Speaker} from '@/lib/aircraftAudio';
-import {demProtocol,imageryProtocol,groundInfo,flattenAirport} from '@/lib/worldTerrain';
+import {demProtocol,imageryProtocol,DEM_ENCODING,groundInfo,flattenAirport} from '@/lib/worldTerrain';
 import {geoDistance,geoBearing,geoMove,nearRunway,stepWorld,worldStallSpeed,type Airport,type WorldRoom,type WorldPlane} from '@/lib/worldFlight';
 import {spec,vSpeeds,aircraftMass,AIRCRAFT,type ModelInfo,type AircraftId} from '@/lib/aircraft';
 import {autopilot,indicatedAlt,glidePath,planRemaining,newAutopilot,shortMode} from '@/lib/autopilot';
@@ -45,16 +45,16 @@ function buildStyle():StyleSpecification{const raster=(tiles:string,maxzoom:numb
    // national orthophotos are kept only where the server returns 404 (not blank tiles) outside its country
   
    night:raster('https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png',8,undefined,'NASA VIIRS Black Marble'),
-   dem:{type:'raster-dem',tiles:['flatdem://{z}/{x}/{y}'],tileSize:256,maxzoom:15,encoding:'terrarium',attribution:'Mapzen terrain (SRTM, GMTED, ETOPO1) · 3D buildings © OpenStreetMap contributors via OpenFreeMap'},
+   dem:{type:'raster-dem',tiles:['flatdem://{z}/{x}/{y}'],tileSize:256,maxzoom:15,...DEM_ENCODING,attribution:'Mapzen terrain (SRTM, GMTED, ETOPO1) · 3D buildings © OpenStreetMap contributors via OpenFreeMap'},
    lights:{type:'geojson',data:EMPTY},papi:{type:'geojson',data:EMPTY},labels:{type:'geojson',data:EMPTY}},
-  layers:[{id:'bg',type:'background',paint:{'background-color':'#3d5a68'}},{id:'sat',type:'raster',source:'sat',paint:{'raster-contrast':.08,'raster-saturation':.1,'raster-fade-duration':120}},...['ign'].map(id=>({id,type:'raster' as const,source:id,paint:{'raster-fade-duration':120}})),
+  layers:[{id:'bg',type:'background',paint:{'background-color':PHOTOREAL_ONLY?'#4f5446':'#3d5a68'}},{id:'sat',type:'raster',source:'sat',paint:{'raster-contrast':.08,'raster-saturation':.1,'raster-fade-duration':120}},// IGN's bounding box reaches into Germany, where its deep tiles 404 and blurry grey parents get drawn over the
+   // sharper Esri photo; the photoreal set needs no French orthophoto (Esri covers Strasbourg well), so it is left out
+   ...(PHOTOREAL_ONLY?[]:['ign']).map(id=>({id,type:'raster' as const,source:id,paint:{'raster-fade-duration':120}})),
    {id:'night',type:'raster',source:'night',paint:{'raster-opacity':0}},
    {id:'lights',type:'circle',source:'lights',paint:{'circle-color':['get','color'],'circle-radius':['interpolate',['linear'],['zoom'],11,['*',['get','size'],.35],15,['get','size'],19,['*',['get','size'],2.4]],'circle-blur':.6,'circle-opacity':0,'circle-pitch-alignment':'viewport'}},
    {id:'papi',type:'circle',source:'papi',paint:{'circle-color':['get','color'],'circle-radius':['interpolate',['linear'],['zoom'],11,2,15,4,19,7],'circle-blur':.5,'circle-pitch-alignment':'viewport'}},
    {id:'labels',type:'symbol',source:'labels',layout:{'text-field':['get','label'],'text-font':['Noto Sans Regular'],'text-size':11,'text-offset':[0,-2.2],'text-allow-overlap':true},paint:{'text-color':'#c9f2ff','text-halo-color':'#04121a','text-halo-width':1.4}}],
-  // Photoreal mode takes the ground's shape from the photogrammetry; MapLibre's own terrain is decoded through canvas
-  // read-back, which anti-fingerprinting browsers (Brave) randomise into tall spikes, so it stays off there.
-  ...(PHOTOREAL_ONLY?{}:{terrain:{source:'dem',exaggeration:1}}),
+  terrain:{source:'dem',exaggeration:1},
   sky:{'sky-color':'#5b9be0','horizon-color':'#d6e6f2','fog-color':'#d8e4ec','sky-horizon-blend':.6,'horizon-fog-blend':.7,'fog-ground-blend':.75,'atmosphere-blend':['interpolate',['linear'],['zoom'],0,1,8,1,11,0]}} as StyleSpecification;}
 /** One map for the whole session: planner and flights reuse it, so tiles stay cached. */
 async function createEngine(el:HTMLElement,q:Quality):Promise<Engine>{const maplibregl=await import('maplibre-gl');maplibregl.setWorkerUrl('/flight/maplibre/maplibre-gl-worker.mjs');
@@ -66,7 +66,8 @@ async function createEngine(el:HTMLElement,q:Quality):Promise<Engine>{const mapl
   layer.setSun(az,el2,day);scenery.setLight(az,el2,day);const key=`${day.toFixed(2)}|${dusk.toFixed(2)}|${fog.toFixed(2)}`;if(key!==lastKey){lastKey=key;
    const hz=blend(blend([18,24,40],[214,230,242],day),[246,170,110],dusk*.7);
    map.getContainer().style.background=css(hz);map.setSky({'sky-color':css(blend([6,10,22],[91,155,224],day)),'horizon-color':css(hz),'fog-color':css(blend([20,24,32],[214,224,232],day)),'sky-horizon-blend':.6,'horizon-fog-blend':.55+fog*.4,'fog-ground-blend':Math.max(.08,.75-fog*.7),'atmosphere-blend':['interpolate',['linear'],['zoom'],0,1,8,1,11,0]} as never);
-   for(const id of ['sat','ign'])map.setPaintProperty(id,'raster-brightness-max',.12+.88*day);map.setPaintProperty('night','raster-opacity',(1-day)*.85);map.setPaintProperty('lights','circle-opacity',day<.55||vis<5000?1:0);}
+   for(const id of ['sat','ign'])if(map.getLayer(id))map.setPaintProperty(id,'raster-brightness-max',.12+.88*day);// city-light glow is a zoom-8 picture: right for cruise, a smear over the airfield, so it fades out on the way down
+   map.setPaintProperty('night','raster-opacity',['interpolate',['linear'],['zoom'],10,(1-day)*.85,13,0]);map.setPaintProperty('lights','circle-opacity',day<.55||vis<5000?1:0);}
   return{sunEl:el2,day};};
  return{map,layer,scenery,setTime};}
 /** Camera placed at a position with heading, pitch (0 = level) and roll, in MapLibre's free-camera terms. */

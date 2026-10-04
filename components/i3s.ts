@@ -6,7 +6,7 @@ import {WGS84_ELLIPSOID} from '3d-tiles-renderer';
 
 type Obb={center:[number,number,number];halfSize:[number,number,number];quaternion:[number,number,number,number]};
 type RawNode={index:number;obb:Obb;children?:number[];lodThreshold?:number;mesh?:{geometry:{resource:number};material:{resource:number}}};
-type Node=RawNode&{ecef:THREE.Vector3;radius:number;frame:THREE.Matrix4;state:'none'|'loading'|'ready'|'failed';object?:THREE.Mesh;used:number};
+type Node=RawNode&{ecef:THREE.Vector3;radius:number;frame:THREE.Matrix4;state:'none'|'loading'|'ready'|'failed';object?:THREE.Mesh;used:number;retryAt?:number;tries?:number};
 const rad=Math.PI/180;
 // Google's Draco decoder (the module three.js ships), used directly: I3S stores per-node position scale factors
 // (i3s-scale_x / i3s-scale_y) in Draco attribute metadata, which three's DRACOLoader discards.
@@ -36,7 +36,7 @@ function decodeI3S(d:any,buf:ArrayBuffer){const dec=new d.Decoder(),db=new d.Dec
 
 export class I3SSource{
  group=new THREE.Group();private nodes=new Map<number,Node>();private pages=new Map<number,Promise<void>|true>();private perPage=64;private ready:Promise<void>;
- private queue:Node[]=[];private active=0;private toWgs:(p:[number,number])=>[number,number];private frame=0;
+ private queue:Node[]=[];private active=0;private pagesActive=0;private toWgs:(p:[number,number])=>[number,number];private frame=0;
  maxJobs=32;budget=900;
  /** >1 relaxes the server's screen-area thresholds: whole-area coverage first, finest leaves only when large on screen. */
  lodFactor=3;
@@ -44,17 +44,20 @@ export class I3SSource{
   this.toWgs=proj4(crs,'WGS84').forward as (p:[number,number])=>[number,number];
   this.ready=fetch(`${base}?f=json`).then(r=>r.json()).then((l:{nodePages?:{nodesPerPage:number}})=>{this.perPage=l.nodePages?.nodesPerPage??64;}).then(()=>this.page(0));
  }
- private page(p:number){const have=this.pages.get(p);if(have)return have===true?Promise.resolve():have;
-  const pr=fetch(`${this.base}/nodepages/${p}`).then(r=>r.json()).then((d:{nodes:RawNode[]})=>{for(const n of d.nodes)this.nodes.set(n.index,this.prepare(n));this.pages.set(p,true);}).catch(()=>{this.pages.delete(p);});
+ /** Node pages are fetched a few at a time (callers simply ask again next frame): hundreds of page requests would
+  *  otherwise queue ahead of the mesh downloads on an HTTP/1.1 connection. */
+ private page(p:number){const have=this.pages.get(p);if(have)return have===true?Promise.resolve():have;if(this.pagesActive>=6)return Promise.resolve();this.pagesActive++;
+  const pr=fetch(`${this.base}/nodepages/${p}`,{signal:AbortSignal.timeout(20000)}).then(r=>r.json()).then((d:{nodes:RawNode[]})=>{for(const n of d.nodes)this.nodes.set(n.index,this.prepare(n));this.pages.set(p,true);}).catch(()=>{this.pages.delete(p);}).finally(()=>{this.pagesActive--;});
   this.pages.set(p,pr);return pr;}
  /** Node frame: east/north/up at the node centre, rotated by UTM grid convergence and scaled by the point scale factor. */
  private prepare(n:RawNode):Node{const [e,nn,z]=n.obb.center,[lon,lat]=this.toWgs([e,nn]),[lon2,lat2]=this.toWgs([e,nn+100]);
   const dN=(lat2-lat)*110540,dE=(lon2-lon)*111320*Math.cos(lat*rad),gamma=Math.atan2(dE,dN),k=100/Math.hypot(dE,dN);
   const frame=WGS84_ELLIPSOID.getEastNorthUpFrame(lat*rad,lon*rad,z+this.geoid,new THREE.Matrix4()).multiply(new THREE.Matrix4().makeRotationZ(-gamma)).multiply(new THREE.Matrix4().makeScale(1/k,1/k,1));
   const ecef=new THREE.Vector3().setFromMatrixPosition(frame);return{...n,ecef,radius:Math.hypot(...n.obb.halfSize),frame,state:'none',used:0};}
- private load(n:Node){n.state='loading';this.active++;const r=n.mesh!.geometry.resource;
-  Promise.all([fetch(`${this.base}/nodes/${r}/geometries/1`).then(x=>{if(!x.ok)throw new Error(String(x.status));return x.arrayBuffer();}),
-   fetch(`${this.base}/nodes/${n.mesh!.material.resource}/textures/0`).then(x=>x.blob()).then(b=>createImageBitmap(b,{imageOrientation:'none'}))])
+ private load(n:Node){n.state='loading';this.active++;const r=n.mesh!.geometry.resource,signal=AbortSignal.timeout(25000);
+  // a stalled request must not hold a download slot forever: time out, then retry later with back-off
+  Promise.all([fetch(`${this.base}/nodes/${r}/geometries/1`,{signal}).then(x=>{if(!x.ok)throw new Error(String(x.status));return x.arrayBuffer();}),
+   fetch(`${this.base}/nodes/${n.mesh!.material.resource}/textures/0`,{signal}).then(x=>x.blob()).then(b=>createImageBitmap(b,{imageOrientation:'none'}))])
   .then(([buf,img])=>draco().then(()=>[decodeI3S(dracoMod,buf),img] as [THREE.BufferGeometry,ImageBitmap]))
   .then(([geo,img])=>{const pos=geo.getAttribute('position') as THREE.BufferAttribute;
     // vertices are stored relative to the node's OBB centre; guard against absolute coordinates just in case
@@ -62,10 +65,11 @@ export class I3SSource{
     geo.computeBoundingSphere();const tex=new THREE.Texture(img);tex.flipY=false;tex.colorSpace=THREE.SRGBColorSpace;tex.anisotropy=8;tex.needsUpdate=true;
     const mesh=new THREE.Mesh(geo,this.material(tex));mesh.matrixAutoUpdate=false;mesh.matrix.copy(n.frame);mesh.frustumCulled=false;mesh.visible=false;mesh.userData.node=n.index;
     this.group.add(mesh);n.object=mesh;n.state='ready';})
-  .catch(()=>{n.state='failed';}).finally(()=>{this.active--;});}
+  
+  .catch(()=>{n.state='failed';n.tries=(n.tries??0)+1;n.retryAt=performance.now()+Math.min(60000,3000*2**n.tries);}).finally(()=>{this.active--;});}
  private unload(n:Node){const o=n.object;if(!o)return;this.group.remove(o);o.geometry.dispose();const m=o.material as THREE.MeshBasicMaterial;m.map?.dispose();(m.map?.image as ImageBitmap|undefined)?.close?.();m.dispose();n.object=undefined;n.state='none';}
  /** Choose nodes by projected screen area against their lodThreshold, keep parents until children are ready. */
- update(camera:THREE.PerspectiveCamera,height:number){this.frame++;const nodes=this.nodes,root=nodes.get(0);if(!root){void this.ready;return;}
+ update(camera:THREE.PerspectiveCamera,height:number){this.frame++;const nodes=this.nodes,root=nodes.get(0);if(!root){void this.ready.then(()=>this.page(0));return;}
   const toLocal=this.group.matrixWorld,frustum=new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
   const focal=height/(2*Math.tan(camera.fov*rad/2)),cam=camera.position,tmp=new THREE.Vector3(),sphere=new THREE.Sphere(),wanted:Node[]=[],show=new Set<Node>();
   const pageOf=(i:number)=>Math.floor(i/this.perPage);
@@ -73,7 +77,8 @@ export class I3SSource{
    const dist=Math.max(1,tmp.distanceTo(cam)-n.radius),px=2*n.radius*focal/dist,refine=!n.mesh||(n.children?.length&&px*px>(n.lodThreshold??0)*this.lodFactor);
    // skip-LOD: only the target (full-detail) level is fetched; the map's own sharp imagery shows until it arrives —
    // coarse photogrammetry is blurrier than the aerial photo, so it is never used as a stand-in
-   n.used=this.frame;const target=!(refine&&n.children?.length);if(n.mesh&&target&&n.state==='none')wanted.push(n);
+   n.used=this.frame;const target=!(refine&&n.children?.length);if(n.state==='failed'&&n.retryAt!==undefined&&performance.now()>n.retryAt&&(n.tries??0)<6)n.state='none';
+   if(n.mesh&&target&&n.state==='none')wanted.push(n);
    const selfShown=!!n.mesh&&n.state==='ready';
    if(refine&&n.children?.length){const kids:Node[]=[];let missing=false;for(const c of n.children){const k=nodes.get(c);if(!k){void this.page(pageOf(c));missing=true;continue;}kids.push(k);}
     // node switching: draw children only once every visible child with a mesh is ready
