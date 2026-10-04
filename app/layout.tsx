@@ -7,7 +7,7 @@ import './sim.css';
 
 export const metadata: Metadata = {
   title: "Hinode — Flight Simulator",
-  description: "A browser flight simulator: 6-DOF flight model, twenty aircraft, live weather and air traffic, ATC, autopilot and autoland at 72,000 real airports.",
+  description: "A browser flight simulator: 6-DOF flight model and live weather, air traffic and ATC over photogrammetry 3D scenery of Cologne, Düsseldorf, the Ruhr and Strasbourg, in an Airbus A320 with a modelled flight deck.",
   metadataBase: new URL('https://lantern-relay-ten.vercel.app'),
   openGraph: {
     title: 'Hinode — Flight Simulator',
