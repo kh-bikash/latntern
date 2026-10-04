@@ -10,7 +10,7 @@ const Z_UP=new THREE.Matrix4().makeRotationX(Math.PI/2);
 export class ThreeLayer implements CustomLayerInterface{
  id='three';type='custom' as const;renderingMode='3d' as const;
  scene=new THREE.Scene();camera=new THREE.Camera();renderer?:THREE.WebGLRenderer;placed=new Set<Placed>();center={lon:0,lat:0};sun=new THREE.DirectionalLight('#fff4e0',2.4);hemi=new THREE.HemisphereLight('#dbe8f5','#4b4a44',1.1);
- day=1;private warned=false;private depthOnly=new THREE.MeshBasicMaterial({colorWrite:false,side:THREE.DoubleSide});photoreal?:{frame:(pose:CameraPose|null,day:number)=>THREE.Object3D|null;setReference:(r:{lat:number;lon:number;elevation:number}|null)=>void;get region():{id:string}|null};private map?:MapLibreMap;private tmp=new THREE.Matrix4();private s=new THREE.Matrix4();private r=new THREE.Matrix4();private e=new THREE.Euler();
+ day=1;private warned=false;photoreal?:{frame:(pose:CameraPose|null,day:number)=>THREE.Object3D|null;setReference:(r:{lat:number;lon:number;elevation:number}|null)=>void;get region():{id:string}|null};private map?:MapLibreMap;private tmp=new THREE.Matrix4();private s=new THREE.Matrix4();private r=new THREE.Matrix4();private e=new THREE.Euler();
  constructor(readonly merc:MercFn){this.hemi.position.set(0,0,1);this.scene.add(this.sun,this.sun.target,this.hemi);this.scene.matrixAutoUpdate=false;}
  onAdd(map:MapLibreMap,gl:WebGLRenderingContext|WebGL2RenderingContext){this.map=map;this.renderer=new THREE.WebGLRenderer({canvas:map.getCanvas(),context:gl as WebGL2RenderingContext,antialias:true});this.renderer.autoClear=false;this.renderer.outputColorSpace=THREE.SRGBColorSpace;this.renderer.toneMapping=THREE.ACESFilmicToneMapping;this.renderer.toneMappingExposure=1.05;
   // studio environment for aircraft reflections (photogrammetry tiles are unlit and ignore it)
@@ -30,15 +30,10 @@ export class ThreeLayer implements CustomLayerInterface{
    this.e.set(p.pitch,p.roll,-p.heading*Math.PI/180,'ZXY');this.r.makeRotationFromEuler(this.e);
    p.obj.matrix.makeTranslation(m.x-c.x,m.y-c.y,m.z-c.z).multiply(this.s.makeScale(k,-k,k)).multiply(this.r);p.obj.matrixWorldNeedsUpdate=true;}
   this.scene.updateMatrixWorld(true);this.renderer.resetState();
-  if(photo&&photo.visible){
-   // 1) the mesh alone, biased toward the camera so it covers the map's coarser terrain;
-   // 2) its true (unbiased) depth; 3) everything else, so aircraft sit on and behind real buildings correctly.
-   const shown:THREE.Object3D[]=[];for(const c of this.scene.children)if(c!==photo&&c.visible&&!(c as THREE.Light).isLight){shown.push(c);c.visible=false;}
-   this.renderer.render(this.scene,this.camera);
-   _gl.depthMask(true);_gl.clear(_gl.DEPTH_BUFFER_BIT);this.renderer.resetState();
-   this.scene.overrideMaterial=this.depthOnly;this.renderer.render(this.scene,this.camera);this.scene.overrideMaterial=null;
-   for(const c of shown)c.visible=true;photo.visible=false;this.renderer.render(this.scene,this.camera);photo.visible=true;
-  }else this.renderer.render(this.scene,this.camera);}
+  // the photogrammetry mesh is the ground where it has streamed in: draw it (and the aircraft) over the map's coarser
+  // terrain; wherever it has not arrived yet, the map's imagery already drawn underneath stays visible
+  if(photo&&photo.visible){_gl.depthMask(true);_gl.clear(_gl.DEPTH_BUFFER_BIT);this.renderer.resetState();}
+  this.renderer.render(this.scene,this.camera);}
  onRemove(){this.renderer?.dispose();}
  repaint(){this.map?.triggerRepaint();}
 }

@@ -35,12 +35,12 @@ function tilesSource(region:PhotorealRegion,u:Shared,cam:THREE.PerspectiveCamera
  tiles.addEventListener('load-model',(e:{scene:THREE.Object3D;tile:{geometricError:number}})=>{const coarse=e.tile.geometricError>MAX_SHOWN_ERROR;e.scene.traverse(o=>{if(coarse)o.visible=false;const mesh=o as THREE.Mesh;if(!mesh.isMesh)return;const old=mesh.material as THREE.MeshStandardMaterial;mesh.material=flatEarthMaterial(old.map??null,u);old.dispose();});});
  tiles.setCamera(cam);
  return{group:tiles.group,update:(c,w,h)=>{tiles.setResolution(c,w,h);tiles.update();},dispose:()=>tiles.dispose()};}
-function i3sSource(region:PhotorealRegion,u:Shared):Source{const src=new I3SSource(region.url,region.crs!,region.geoid,map=>flatEarthMaterial(map,u));
+function i3sSource(region:PhotorealRegion,u:Shared):Source{const src=new I3SSource(region.url,region.crs!,region.geoid,map=>flatEarthMaterial(map,u));if(typeof window!=='undefined')(window as unknown as {__i3s?:I3SSource}).__i3s=src;
  return{group:src.group,update:(c,_w,h)=>src.update(c,h),dispose:()=>src.dispose()};}
 
 class RegionTiles{
  src:Source;enu=new THREE.Group();placed:Placed;anchor={lat:0,lon:0};lod=new THREE.PerspectiveCamera(40,1,1,15000);
- u:Shared={day:{value:1},anchor:{value:new THREE.Vector2()},curv:{value:0},cam:{value:new THREE.Vector3()},k:{value:0},bias:{value:1}};
+ u:Shared={day:{value:1},anchor:{value:new THREE.Vector2()},curv:{value:0},cam:{value:new THREE.Vector3()},k:{value:0},bias:{value:0}};
  offset=0;ref:{lat:number;lon:number;elevation:number}|null=null;private calibratedAt=0;calibrations=0;private ray=new THREE.Raycaster();
  constructor(public region:PhotorealRegion,layer:ThreeLayer){
   this.src=region.format==='i3s'?i3sSource(region,this.u):tilesSource(region,this.u,this.lod);
@@ -64,11 +64,11 @@ class RegionTiles{
   const a=layer.merc(this.anchor.lon,this.anchor.lat,0),c=layer.merc(layer.center.lon,layer.center.lat,0),k=a.meterInMercatorCoordinateUnits();
   this.u.anchor.value.set(a.x-c.x,a.y-c.y);this.u.curv.value=1/(2*R_EARTH*k);this.u.day.value=day;this.u.k.value=k;
   const cm=layer.merc(pose.lon,pose.lat,pose.alt);this.u.cam.value.set(cm.x-c.x,cm.y-c.y,cm.z-c.z);}
- /** Mesh heights are not reliably consistent across datasets: measure the mesh at the reference runway and shift it
+ /** NRW heights are sea-level (DHHN2016) already; other meshes are not reliably consistent: measure the mesh at the reference runway and shift it
   *  so the real runway sits at the published elevation (the frame is rigid here, so the ray is in anchor metres). */
- private calibrate(){const r=this.ref,now=performance.now();if(!r||now-this.calibratedAt<1500||this.calibrations>40)return;this.calibratedAt=now;
+ private calibrate(){const r=this.ref,now=performance.now();if(!r||this.region.format==='i3s'||now-this.calibratedAt<1500||this.calibrations>40)return;this.calibratedAt=now;
   const x=(r.lon-this.anchor.lon)*Math.cos(r.lat*rad)*111320,y=(r.lat-this.anchor.lat)*110540;this.ray.set(new THREE.Vector3(x,y,9000),new THREE.Vector3(0,0,-1));this.ray.far=2e4;
-  const hit=this.ray.intersectObject(this.src.group,true).find(h=>h.object.visible!==false);if(!hit)return;this.calibrations++;this.offset=hit.point.z-r.elevation;this.placed.alt=-this.offset;}
+  const hit=this.ray.intersectObject(this.src.group,true).find(h=>h.object.visible!==false);if(!hit)return;const off=hit.point.z-r.elevation;if(Math.abs(off)>20)return;this.calibrations++;this.offset=off;this.placed.alt=-this.offset;}
  dispose(layer:ThreeLayer){layer.remove(this.placed,false);this.src.dispose();}
 }
 
