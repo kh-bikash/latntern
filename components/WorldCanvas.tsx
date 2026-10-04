@@ -9,7 +9,7 @@ import {drawPanel,drawPFD,drawND,drawEICAS,type AvionicsData,type NavPoint} from
 import {aircraftModelUrl} from './AircraftModels';
 import {airfieldArt,papiLights,pointsGeoJSON,ThreeClouds,ThreeTraffic,WeatherOverlay,sunElevation,sunAzimuth,type LiveTraffic,type TrafficModel,type Airfield} from './worldScene';
 import {Photoreal} from './photoreal';
-import {photorealAt} from '@/lib/photoreal';
+import {photorealAt,PHOTOREAL_ONLY} from '@/lib/photoreal';
 import {ThreeLayer,wrapModel,cameraHint,type Placed} from './threeLayer';
 import {OsmScenery} from './osmScenery';
 import type {Sim,Telemetry,TimePreset} from './sim';
@@ -52,7 +52,9 @@ function buildStyle():StyleSpecification{const raster=(tiles:string,maxzoom:numb
    {id:'lights',type:'circle',source:'lights',paint:{'circle-color':['get','color'],'circle-radius':['interpolate',['linear'],['zoom'],11,['*',['get','size'],.35],15,['get','size'],19,['*',['get','size'],2.4]],'circle-blur':.6,'circle-opacity':0,'circle-pitch-alignment':'viewport'}},
    {id:'papi',type:'circle',source:'papi',paint:{'circle-color':['get','color'],'circle-radius':['interpolate',['linear'],['zoom'],11,2,15,4,19,7],'circle-blur':.5,'circle-pitch-alignment':'viewport'}},
    {id:'labels',type:'symbol',source:'labels',layout:{'text-field':['get','label'],'text-font':['Noto Sans Regular'],'text-size':11,'text-offset':[0,-2.2],'text-allow-overlap':true},paint:{'text-color':'#c9f2ff','text-halo-color':'#04121a','text-halo-width':1.4}}],
-  terrain:{source:'dem',exaggeration:1},
+  // Photoreal mode takes the ground's shape from the photogrammetry; MapLibre's own terrain is decoded through canvas
+  // read-back, which anti-fingerprinting browsers (Brave) randomise into tall spikes, so it stays off there.
+  ...(PHOTOREAL_ONLY?{}:{terrain:{source:'dem',exaggeration:1}}),
   sky:{'sky-color':'#5b9be0','horizon-color':'#d6e6f2','fog-color':'#d8e4ec','sky-horizon-blend':.6,'horizon-fog-blend':.7,'fog-ground-blend':.75,'atmosphere-blend':['interpolate',['linear'],['zoom'],0,1,8,1,11,0]}} as StyleSpecification;}
 /** One map for the whole session: planner and flights reuse it, so tiles stay cached. */
 async function createEngine(el:HTMLElement,q:Quality):Promise<Engine>{const maplibregl=await import('maplibre-gl');maplibregl.setWorkerUrl('/flight/maplibre/maplibre-gl-worker.mjs');

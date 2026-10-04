@@ -11,11 +11,17 @@ const rad=Math.PI/180;
 // Google's Draco decoder (the module three.js ships), used directly: I3S stores per-node position scale factors
 // (i3s-scale_x / i3s-scale_y) in Draco attribute metadata, which three's DRACOLoader discards.
 /* eslint-disable @typescript-eslint/no-explicit-any */
-let dracoModule:Promise<any>|null=null;
-function draco():Promise<any>{if(!dracoModule)dracoModule=new Promise((resolve,reject)=>{const w=window as any;
- const go=()=>fetch('/flight/draco/draco_decoder.wasm').then(r=>r.arrayBuffer()).then(wasmBinary=>w.DracoDecoderModule({wasmBinary})).then(resolve,reject);
- if(w.DracoDecoderModule)return go();const sc=document.createElement('script');sc.src='/flight/draco/draco_wasm_wrapper.js';sc.onload=go;sc.onerror=reject;document.head.appendChild(sc);});
- return dracoModule;}
+let dracoReady:Promise<void>|null=null,dracoMod:any=null;
+/** Loads the decoder once. The Emscripten module is a thenable that resolves to itself, so it is kept in a variable and
+ *  never used to resolve a promise (that can loop forever); the wrapper is evaluated directly because an injected
+ *  <script> never fired its load event in Brave. */
+function draco():Promise<void>{if(!dracoReady){dracoReady=(async()=>{const w=window as any;
+  if(!w.DracoDecoderModule){const src=await (await fetch('/flight/draco/draco_wasm_wrapper.js')).text();(0,eval)(`${src}
+;window.DracoDecoderModule=DracoDecoderModule;`);}
+  const wasmBinary=await (await fetch('/flight/draco/draco_decoder.wasm')).arrayBuffer();
+  await new Promise<void>((resolve,reject)=>{const t=setTimeout(()=>reject(new Error('draco init timeout')),20000);w.DracoDecoderModule({wasmBinary,onModuleLoaded:(m:any)=>{clearTimeout(t);dracoMod=m;resolve();}});});})();
+  dracoReady.catch(()=>{dracoReady=null;});}
+ return dracoReady;}
 function decodeI3S(d:any,buf:ArrayBuffer){const dec=new d.Decoder(),db=new d.DecoderBuffer(),mesh=new d.Mesh(),mq=new d.MetadataQuerier();
  try{db.Init(new Int8Array(buf),buf.byteLength);const st=dec.DecodeBufferToMesh(db,mesh);if(!st.ok())throw new Error(st.error_msg());
   const pa=dec.GetAttribute(mesh,dec.GetAttributeId(mesh,d.POSITION)),ta=dec.GetAttributeId(mesh,d.TEX_COORD),n=mesh.num_points();
@@ -49,7 +55,7 @@ export class I3SSource{
  private load(n:Node){n.state='loading';this.active++;const r=n.mesh!.geometry.resource;
   Promise.all([fetch(`${this.base}/nodes/${r}/geometries/1`).then(x=>{if(!x.ok)throw new Error(String(x.status));return x.arrayBuffer();}),
    fetch(`${this.base}/nodes/${n.mesh!.material.resource}/textures/0`).then(x=>x.blob()).then(b=>createImageBitmap(b,{imageOrientation:'none'}))])
-  .then(([buf,img])=>draco().then(d=>[decodeI3S(d,buf),img] as [THREE.BufferGeometry,ImageBitmap]))
+  .then(([buf,img])=>draco().then(()=>[decodeI3S(dracoMod,buf),img] as [THREE.BufferGeometry,ImageBitmap]))
   .then(([geo,img])=>{const pos=geo.getAttribute('position') as THREE.BufferAttribute;
     // vertices are stored relative to the node's OBB centre; guard against absolute coordinates just in case
     if(pos.count&&Math.abs(pos.getX(0))>5e4){const [cx,cy,cz]=n.obb.center;for(let i=0;i<pos.count;i++)pos.setXYZ(i,pos.getX(i)-cx,pos.getY(i)-cy,pos.getZ(i)-cz);}
