@@ -93,3 +93,4 @@ Photogrammetry scenery (open data, streamed as OGC 3D Tiles):
 - Strasbourg: Photomaillage 2022, Eurométropole de Strasbourg (open data).
 - Clermont-Ferrand: Photomaillage, CRAIG Auvergne-Rhône-Alpes (open data).
 - Luxembourg: Maquette 3D 2020, Administration du cadastre et de la topographie, CC0.
+- North Rhine-Westphalia: 3D-Mesh NRW, Geobasis NRW (Bezirksregierung Köln), Datenlizenz Deutschland Zero 2.0.

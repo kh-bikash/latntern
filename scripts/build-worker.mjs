@@ -5,4 +5,7 @@ import {mkdir,copyFile} from 'node:fs/promises';
 await build({entryPoints:['lib/osmWorker.ts'],bundle:true,format:'esm',minify:true,target:'es2020',outfile:'public/flight/osm-worker.js',legalComments:'eof'});
 await mkdir('public/flight/maplibre',{recursive:true});
 for(const f of ['maplibre-gl-worker.mjs','maplibre-gl-shared.mjs'])await copyFile(`node_modules/maplibre-gl/dist/${f}`,`public/flight/maplibre/${f}`);
+// Draco decoder for compressed I3S photogrammetry geometry
+await mkdir('public/flight/draco',{recursive:true});
+for(const f of ['draco_decoder.js','draco_decoder.wasm','draco_wasm_wrapper.js'])await copyFile(`node_modules/three/examples/jsm/libs/draco/${f}`,`public/flight/draco/${f}`);
 console.log('built workers');

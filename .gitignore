@@ -9,3 +9,4 @@ outputs/
 next-env.d.ts
 public/flight/osm-worker.js
 public/flight/maplibre/
+public/flight/draco/

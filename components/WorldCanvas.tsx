@@ -42,11 +42,12 @@ function buildStyle():StyleSpecification{const raster=(tiles:string,maxzoom:numb
  return{version:8,glyphs:'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
   sources:{sat:raster('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?blankTile=false',19,undefined,'Imagery © Esri, Maxar, Earthstar Geographics'),
    ign:raster('https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',18,[-5.2,41.3,9.6,51.1],'IGN-F'),
-   swiss:raster('https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg',18,[5.9,45.8,10.5,47.85],'© swisstopo'),pdok:raster('https://service.pdok.nl/hwh/luchtfotorgb/wmts/v1_0/Actueel_orthoHR/EPSG:3857/{z}/{x}/{y}.jpeg',18,[3.3,50.7,7.3,53.6],'PDOK'),
+   // national orthophotos are kept only where the server returns 404 (not blank tiles) outside its country
+  
    night:raster('https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png',8,undefined,'NASA VIIRS Black Marble'),
    dem:{type:'raster-dem',tiles:['flatdem://{z}/{x}/{y}'],tileSize:256,maxzoom:15,encoding:'terrarium',attribution:'Mapzen terrain (SRTM, GMTED, ETOPO1) · 3D buildings © OpenStreetMap contributors via OpenFreeMap'},
    lights:{type:'geojson',data:EMPTY},papi:{type:'geojson',data:EMPTY},labels:{type:'geojson',data:EMPTY}},
-  layers:[{id:'bg',type:'background',paint:{'background-color':'#3d5a68'}},{id:'sat',type:'raster',source:'sat',paint:{'raster-contrast':.08,'raster-saturation':.1,'raster-fade-duration':120}},...['ign','swiss','pdok'].map(id=>({id,type:'raster' as const,source:id,paint:{'raster-fade-duration':120}})),
+  layers:[{id:'bg',type:'background',paint:{'background-color':'#3d5a68'}},{id:'sat',type:'raster',source:'sat',paint:{'raster-contrast':.08,'raster-saturation':.1,'raster-fade-duration':120}},...['ign'].map(id=>({id,type:'raster' as const,source:id,paint:{'raster-fade-duration':120}})),
    {id:'night',type:'raster',source:'night',paint:{'raster-opacity':0}},
    {id:'lights',type:'circle',source:'lights',paint:{'circle-color':['get','color'],'circle-radius':['interpolate',['linear'],['zoom'],11,['*',['get','size'],.35],15,['get','size'],19,['*',['get','size'],2.4]],'circle-blur':.6,'circle-opacity':0,'circle-pitch-alignment':'viewport'}},
    {id:'papi',type:'circle',source:'papi',paint:{'circle-color':['get','color'],'circle-radius':['interpolate',['linear'],['zoom'],11,2,15,4,19,7],'circle-blur':.5,'circle-pitch-alignment':'viewport'}},
@@ -63,7 +64,7 @@ async function createEngine(el:HTMLElement,q:Quality):Promise<Engine>{const mapl
   layer.setSun(az,el2,day);scenery.setLight(az,el2,day);const key=`${day.toFixed(2)}|${dusk.toFixed(2)}|${fog.toFixed(2)}`;if(key!==lastKey){lastKey=key;
    const hz=blend(blend([18,24,40],[214,230,242],day),[246,170,110],dusk*.7);
    map.setSky({'sky-color':css(blend([6,10,22],[91,155,224],day)),'horizon-color':css(hz),'fog-color':css(blend([20,24,32],[214,224,232],day)),'sky-horizon-blend':.6,'horizon-fog-blend':.55+fog*.4,'fog-ground-blend':Math.max(.08,.75-fog*.7),'atmosphere-blend':['interpolate',['linear'],['zoom'],0,1,8,1,11,0]} as never);
-   for(const id of ['sat','ign','swiss','pdok'])map.setPaintProperty(id,'raster-brightness-max',.12+.88*day);map.setPaintProperty('night','raster-opacity',(1-day)*.85);map.setPaintProperty('lights','circle-opacity',day<.55||vis<5000?1:0);}
+   for(const id of ['sat','ign'])map.setPaintProperty(id,'raster-brightness-max',.12+.88*day);map.setPaintProperty('night','raster-opacity',(1-day)*.85);map.setPaintProperty('lights','circle-opacity',day<.55||vis<5000?1:0);}
   return{sunEl:el2,day};};
  return{map,layer,scenery,setTime};}
 /** Camera placed at a position with heading, pitch (0 = level) and roll, in MapLibre's free-camera terms. */
