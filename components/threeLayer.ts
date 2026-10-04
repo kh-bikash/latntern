@@ -4,6 +4,8 @@ import * as THREE from 'three';
 import {RoomEnvironment} from 'three/examples/jsm/environments/RoomEnvironment.js';
 import type {CustomLayerInterface,CustomRenderMethodInput,Map as MapLibreMap} from 'maplibre-gl';
 import type {CameraPose} from './photoreal';
+/** True camera pitch from the game (MapLibre's own pitch is capped at 85° with a lens shift beyond). */
+export const cameraHint:{pitch:number|null}={pitch:null};
 export type Placed={obj:THREE.Object3D;lon:number;lat:number;alt:number;heading:number;pitch:number;roll:number;scale:number;visible:boolean};
 type MercFn=(lon:number,lat:number,alt:number)=>{x:number;y:number;z:number;meterInMercatorCoordinateUnits:()=>number};
 const Z_UP=new THREE.Matrix4().makeRotationX(Math.PI/2);
@@ -21,7 +23,7 @@ export class ThreeLayer implements CustomLayerInterface{
  setSun(azimuth:number,elevation:number,day:number){const a=azimuth*Math.PI/180,e=Math.max(-.2,elevation*Math.PI/180);this.sun.position.set(Math.sin(a)*Math.cos(e),-Math.cos(a)*Math.cos(e),Math.sin(e)).multiplyScalar(1e-3);this.sun.intensity=2.6*day;this.hemi.intensity=.25+.95*day;this.day=day;}
  /** Camera pose read back from MapLibre (works for every camera mode and the planner preview). */
  pose():CameraPose|null{const map=this.map;if(!map)return null;type Tr={getCameraLngLat:()=>{lat:number;lng:number};getCameraAltitude:()=>number;fov:number};const mm=map as unknown as {transform?:Tr;_camera?:{transform?:Tr}},tr=mm.transform??mm._camera?.transform,cv=map.getCanvas();if(!tr?.getCameraLngLat){if(!this.warned){this.warned=true;console.warn('pose: no transform',Object.keys(map).filter(k=>/trans|camera/i.test(k)).join(','));}return null;}const ll=tr.getCameraLngLat();
-  return{lat:ll.lat,lon:ll.lng,alt:tr.getCameraAltitude(),heading:map.getBearing(),pitch:map.getPitch()-90,roll:(map as unknown as {getRoll?:()=>number}).getRoll?.()??0,fov:tr.fov,aspect:cv.width/Math.max(1,cv.height),width:cv.width,height:cv.height};}
+  return{lat:ll.lat,lon:ll.lng,alt:tr.getCameraAltitude(),heading:map.getBearing(),pitch:cameraHint.pitch??map.getPitch()-90,roll:(map as unknown as {getRoll?:()=>number}).getRoll?.()??0,fov:tr.fov,aspect:cv.width/Math.max(1,cv.height),width:cv.width,height:cv.height};}
  render(_gl:WebGL2RenderingContext|WebGLRenderingContext,opts:CustomRenderMethodInput){if(!this.renderer)return;const c=this.merc(this.center.lon,this.center.lat,0);
   this.camera.projectionMatrix.fromArray(opts.defaultProjectionData.mainMatrix as unknown as number[]).multiply(this.tmp.makeTranslation(c.x,c.y,c.z));this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
   const photo=this.photoreal?.frame(this.pose(),this.day)??null;

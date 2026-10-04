@@ -10,7 +10,7 @@ import {aircraftModelUrl} from './AircraftModels';
 import {airfieldArt,papiLights,pointsGeoJSON,ThreeClouds,ThreeTraffic,WeatherOverlay,sunElevation,sunAzimuth,type LiveTraffic,type TrafficModel,type Airfield} from './worldScene';
 import {Photoreal} from './photoreal';
 import {photorealAt} from '@/lib/photoreal';
-import {ThreeLayer,wrapModel,type Placed} from './threeLayer';
+import {ThreeLayer,wrapModel,cameraHint,type Placed} from './threeLayer';
 import {OsmScenery} from './osmScenery';
 import type {Sim,Telemetry,TimePreset} from './sim';
 import {AircraftAudio,Speaker} from '@/lib/aircraftAudio';
@@ -57,13 +57,13 @@ function buildStyle():StyleSpecification{const raster=(tiles:string,maxzoom:numb
 /** One map for the whole session: planner and flights reuse it, so tiles stay cached. */
 async function createEngine(el:HTMLElement,q:Quality):Promise<Engine>{const maplibregl=await import('maplibre-gl');maplibregl.setWorkerUrl('/flight/maplibre/maplibre-gl-worker.mjs');
  try{maplibregl.addProtocol('flatdem',demProtocol() as never);maplibregl.addProtocol('esri',imageryProtocol() as never);}catch{}
- const map=new maplibregl.Map({container:el,style:buildStyle(),center:[139.6,35.3],zoom:8,pitch:60,bearing:20,maxPitch:120,maxZoom:23,interactive:false,attributionControl:{compact:true},fadeDuration:q==='performance'?0:150,maxTileCacheSize:q==='performance'?200:600,pixelRatio:q==='performance'?1:q==='high'?Math.min(2,devicePixelRatio):Math.min(1.5,devicePixelRatio),canvasContextAttributes:{antialias:q!=='performance',powerPreference:'high-performance'}});
+ const map=new maplibregl.Map({container:el,style:buildStyle(),center:[139.6,35.3],zoom:8,pitch:60,bearing:20,maxPitch:120,maxZoom:23,interactive:false,attributionControl:{compact:true},fadeDuration:q==='performance'?0:150,maxTileCacheSize:q==='performance'?200:600,pixelRatio:q==='performance'?1:q==='high'?Math.min(2,devicePixelRatio):Math.min(1.5,devicePixelRatio),canvasContextAttributes:{antialias:q!=='performance',powerPreference:'high-performance'}});if(typeof window!=='undefined')(window as unknown as {__hinodeMap?:unknown}).__hinodeMap=map;
  await new Promise<void>(res=>map.once('load',()=>res()));
  const layer=new ThreeLayer((lon,lat,alt)=>maplibregl.MercatorCoordinate.fromLngLat([lon,lat],alt));layer.photoreal=new Photoreal(layer);map.addLayer(layer);const scenery=new OsmScenery(layer,q);
  let lastKey='';const setTime=(date:Date,lat:number,lon:number,vis:number)=>{const el2=sunElevation(date,lat,lon),az=sunAzimuth(date,lat,lon),day=clamp((el2+4)/14,0,1),dusk=clamp(1-Math.abs(el2-2)/10,0,1),fog=clamp(1-vis/30000,0,1);
   layer.setSun(az,el2,day);scenery.setLight(az,el2,day);const key=`${day.toFixed(2)}|${dusk.toFixed(2)}|${fog.toFixed(2)}`;if(key!==lastKey){lastKey=key;
    const hz=blend(blend([18,24,40],[214,230,242],day),[246,170,110],dusk*.7);
-   map.setSky({'sky-color':css(blend([6,10,22],[91,155,224],day)),'horizon-color':css(hz),'fog-color':css(blend([20,24,32],[214,224,232],day)),'sky-horizon-blend':.6,'horizon-fog-blend':.55+fog*.4,'fog-ground-blend':Math.max(.08,.75-fog*.7),'atmosphere-blend':['interpolate',['linear'],['zoom'],0,1,8,1,11,0]} as never);
+   map.getContainer().style.background=css(hz);map.setSky({'sky-color':css(blend([6,10,22],[91,155,224],day)),'horizon-color':css(hz),'fog-color':css(blend([20,24,32],[214,224,232],day)),'sky-horizon-blend':.6,'horizon-fog-blend':.55+fog*.4,'fog-ground-blend':Math.max(.08,.75-fog*.7),'atmosphere-blend':['interpolate',['linear'],['zoom'],0,1,8,1,11,0]} as never);
    for(const id of ['sat','ign'])map.setPaintProperty(id,'raster-brightness-max',.12+.88*day);map.setPaintProperty('night','raster-opacity',(1-day)*.85);map.setPaintProperty('lights','circle-opacity',day<.55||vis<5000?1:0);}
   return{sunEl:el2,day};};
  return{map,layer,scenery,setTime};}
@@ -72,9 +72,12 @@ async function createEngine(el:HTMLElement,q:Quality):Promise<Engine>{const mapl
 function runwayReference(a:Airport){const r=[...a.runways].sort((x,y)=>y.length-x.length)[0];return r?{lat:(r.lat+r.endLat)/2,lon:(r.lon+r.endLon)/2,elevation:a.elevation}:{lat:a.lat,lon:a.lon,elevation:a.elevation};}
 /** Free camera. MapLibre scales its near plane with the distance to the map center (height/50), which clips the
  *  aircraft in a shallow chase view at altitude; keep the far plane MapLibre computes and pull the near plane in to ~3 m. */
-function placeCamera(map:MapLibreMap,lat:number,lon:number,alt:number,heading:number,pitchDeg:number,roll:number){try{map.jumpTo(map.calculateCameraOptionsFromCameraLngLatAltRotation([lon,lat],alt,heading,clamp(90+pitchDeg,0,120),roll));
- const tr=(map as unknown as {transform?:{clearNearFarZOverride?:()=>void;overrideNearFarZ?:(n:number,f:number)=>void;nearZ:number;farZ:number;_helper?:{_pixelPerMeter?:number}}}).transform,ppm=tr?._helper?._pixelPerMeter;
- if(tr?.clearNearFarZOverride&&tr.overrideNearFarZ&&ppm){tr.clearNearFarZOverride();tr.overrideNearFarZ(Math.min(tr.nearZ,3*ppm),tr.farZ);}}catch{}}
+function placeCamera(map:MapLibreMap,lat:number,lon:number,alt:number,heading:number,pitchDeg:number,roll:number){try{
+ // MapLibre cannot draw the ground past 90° pitch (the ground vanishes or smears into walls), so it is held at 85° and
+ // any further upward look becomes a lens shift (off-centre projection) that moves the horizon down the screen.
+ const want=clamp(90+pitchDeg,0,125),pitch=Math.min(want,85),tr=(map as unknown as {_camera?:{transform?:{fov:number}}})._camera?.transform;
+ let top=0;if(want>85&&tr){const f=map.getCanvas().clientHeight/2/Math.tan(tr.fov*Math.PI/360);top=Math.min(f*3,2*f*(Math.tan((want-90)*Math.PI/180)+Math.tan(5*Math.PI/180)));}
+ cameraHint.pitch=pitchDeg;map.jumpTo({...map.calculateCameraOptionsFromCameraLngLatAltRotation([lon,lat],alt,heading,pitch,roll),padding:{top,bottom:0,left:0,right:0}});}catch{}}
 export default function WorldCanvas(props:Props){
  const mount=useRef<HTMLDivElement>(null),cockpitMount=useRef<HTMLDivElement>(null),panelRef=useRef<HTMLCanvasElement>(null),fxRef=useRef<HTMLCanvasElement>(null),live=useRef(props);live.current=props;const engineRef=useRef<Promise<Engine>|null>(null);
  const [loading,setLoading]=useState<string|null>('Loading the map…');const loadingRef=useRef(loading);loadingRef.current=loading;const setLoadingNull=()=>{loadingRef.current=null;setLoading(null);};
