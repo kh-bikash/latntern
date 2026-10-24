@@ -1,157 +1,1914 @@
 'use client';
-import {PHOTOREAL_ONLY,PHOTOREAL_AIRPORTS} from '@/lib/photoreal';
-import {useState,useEffect,useRef,useCallback} from 'react';
+import { PHOTOREAL_ONLY, PHOTOREAL_AIRPORTS } from '@/lib/photoreal';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import dynamic from 'next/dynamic';
-import {Plane,Users,Volume2,VolumeX,SlidersHorizontal,X,ArrowUpRight,RotateCcw,Check,Radio,Gauge,CloudSun,Bot} from 'lucide-react';
-import {airportEnds,geoDistance,worldSpawn,START_MODES,type Airport,type WorldPlane,type WorldRoom,type StartMode} from '@/lib/worldFlight';
-import {AIRCRAFT,AIRCRAFT_IDS,CATEGORIES,spec,rangeKm,cruiseAltitudeFt,vSpeeds,aircraftMass,type AircraftId,type Category} from '@/lib/aircraft';
-import {activeRunway,windComponents,WEATHER_PRESETS,type Weather,type WeatherPreset} from '@/lib/weather';
-import {loadMetars,weatherAt} from '@/lib/weatherClient';
-import {shortMode} from '@/lib/autopilot';
-import type {Touchdown} from '@/lib/flightModel';
-import {createSim,DEFAULT_SETTINGS,TIME_PRESETS,type Sim,type Settings,type Telemetry} from './sim';
-import type {View,CanvasEvent} from './WorldCanvas';
-const WorldCanvas=dynamic(()=>import('./WorldCanvas'),{ssr:false});
+import {
+  Plane,
+  Users,
+  Volume2,
+  VolumeX,
+  SlidersHorizontal,
+  X,
+  ArrowUpRight,
+  RotateCcw,
+  Check,
+  Radio,
+  Gauge,
+  CloudSun,
+  Bot,
+} from 'lucide-react';
+import {
+  airportEnds,
+  geoDistance,
+  worldSpawn,
+  START_MODES,
+  type Airport,
+  type WorldPlane,
+  type WorldRoom,
+  type StartMode,
+} from '@/lib/worldFlight';
+import {
+  AIRCRAFT,
+  AIRCRAFT_IDS,
+  CATEGORIES,
+  spec,
+  rangeKm,
+  cruiseAltitudeFt,
+  vSpeeds,
+  aircraftMass,
+  type AircraftId,
+  type Category,
+} from '@/lib/aircraft';
+import {
+  activeRunway,
+  windComponents,
+  WEATHER_PRESETS,
+  type Weather,
+  type WeatherPreset,
+} from '@/lib/weather';
+import { loadMetars, weatherAt } from '@/lib/weatherClient';
+import { shortMode } from '@/lib/autopilot';
+import type { Touchdown } from '@/lib/flightModel';
+import {
+  createSim,
+  DEFAULT_SETTINGS,
+  TIME_PRESETS,
+  type Sim,
+  type Settings,
+  type Telemetry,
+} from './sim';
+import type { View, CanvasEvent } from './WorldCanvas';
+const WorldCanvas = dynamic(() => import('./WorldCanvas'), { ssr: false });
 /** Photoreal-only mode offers just the aircraft with detailed (FlightGear) exteriors and flight decks. */
-const OFFERED=PHOTOREAL_ONLY?AIRCRAFT_IDS.filter(id=>AIRCRAFT[id].model.url.includes('/models/fg/')):AIRCRAFT_IDS;
-type Session={code:string;token:string};
-async function api(type:string,session?:Session,extra?:object){const res=await fetch('/api/world',{method:'POST',signal:AbortSignal.timeout(12000),headers:{'Content-Type':'application/json',...(session?{'x-player-token':session.token}:{})},body:JSON.stringify({type,code:session?.code,...extra})});const data=await res.json();if(!res.ok)throw new Error(data.error??'Flight connection unavailable.');return data as{room:WorldRoom;token?:string};}
-function AirportPicker({label,value,onChange}:{label:string;value:Airport|null;onChange:(a:Airport)=>void}){const [q,setQ]=useState(''),[rows,setRows]=useState<Airport[]>([]),[open,setOpen]=useState(false);useEffect(()=>{const abort=new AbortController(),timer=setTimeout(()=>void fetch(`/api/world?q=${encodeURIComponent(q)}`,{signal:abort.signal}).then(r=>r.json()).then(d=>setRows(d.airports)).catch(()=>{}),250);return()=>{clearTimeout(timer);abort.abort();};},[q]);return <div className="airport-picker"><label>{label}</label><button className="airport-selected" onClick={()=>setOpen(!open)}><b>{value?.iata||value?.id||'Select airport'}</b><span>{value?.name??'Search the worldwide catalog'}</span><small>↗</small></button>{open&&<div className="airport-results"><input autoFocus aria-label={`Search ${label.toLowerCase()} airport`} placeholder="Name, city, IATA or ICAO code" value={q} onChange={e=>setQ(e.target.value)}/><div>{rows.map(a=><button key={a.id} onClick={()=>{onChange(a);setOpen(false);}}><b>{a.iata||a.id}</b><span>{a.name}<small>{a.city} · {a.country} · {a.type.replaceAll('_',' ')}</small></span></button>)}</div>{!rows.length&&<p>No matching airport. Try its ICAO code.</p>}</div>}</div>;}
-const fmtTime=(s:number)=>`${Math.floor(s/3600)}:${String(Math.floor(s%3600/60)).padStart(2,'0')}`;
-function useWeather(a:Airport|null,preset:WeatherPreset){const [wx,setWx]=useState<Weather|null>(null);useEffect(()=>{if(!a){setWx(null);return;}let alive=true;if(preset!=='live'){setWx(weatherAt(preset,a,[],null,a.elevation));return;}void loadMetars([a.id],a).then(m=>{if(alive)setWx(weatherAt('live',a,m,null,a.elevation));});return()=>{alive=false;};},[a,preset]);return wx;}
-function RunwaySelect({airport,wx,value,onChange,label}:{airport:Airport|null;wx:Weather|null;value:string;onChange:(v:string)=>void;label:string}){if(!airport)return null;const ends=airportEnds(airport),best=activeRunway(ends,wx);return <label className="rw-select"><span>{label}</span><select value={value||best.ident} onChange={e=>onChange(e.target.value)}>{ends.map(e=>{const c=windComponents(wx,e.heading);return <option key={e.ident} value={e.ident}>RWY {e.ident} · {Math.round(e.length)} m · {c.head>=0?'head':'tail'} {Math.abs(Math.round(c.head/.5144))} kt{e.ident===best.ident?' · ACTIVE':''}</option>;})}</select></label>;}
-export default function WorldApp(){
- const [room,setRoom]=useState<WorldRoom|null>(null),[session,setSession]=useState<Session|null>(null),[saved,setSaved]=useState<Session|null>(null),[from,setFrom]=useState<Airport|null>(null),[to,setTo]=useState<Airport|null>(null),[name,setName]=useState(''),[code,setCode]=useState(''),[mode,setMode]=useState<'create'|'join'>('create');
- const [aircraft,setAircraft]=useState<AircraftId>('jet'),[cat,setCat]=useState<Category>('Narrowbody'),[start,setStart]=useState<StartMode>('runway'),[settings,setSettings]=useState<Settings>(DEFAULT_SETTINGS),[depRw,setDepRw]=useState(''),[arrRw,setArrRw]=useState('');
- const [keysLoaded,setKeysLoaded]=useState(false),[googleKey,setGoogleKey]=useState(''),[keyDraft,setKeyDraft]=useState(''),[sim,setSim]=useState<Sim|null>(null),[view,setView]=useState<View>({camera:0,clean:false,panel:false}),[t,setT]=useState<Telemetry|null>(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[sound,setSound]=useState(false),[panel,setPanel]=useState<'guide'|'settings'|null>(null),[copied,setCopied]=useState(false),[connected,setConnected]=useState(true),[atcOpen,setAtcOpen]=useState(false),[ui,setUi]=useState({ap:false,sys:false,info:false}),[toast,setToast]=useState(''),[report,setReport]=useState<{td:Touchdown;arrival:boolean}|null>(null),[crash,setCrash]=useState(''),[,tick]=useState(0);
- const wxDep=useWeather(from,settings.weather),wxArr=useWeather(to,settings.weather);
- const live=useRef({room,session,sim,t});live.current={room,session,sim,t};const sending=useRef(false);
- const apply=useCallback((next:WorldRoom)=>{setRoom(old=>!old||old.code!==next.code||next.version>=old.version?next:old);setConnected(true);},[]);
- useEffect(()=>{setDepRw('');},[from]);useEffect(()=>{if(innerWidth<=760)setAtcOpen(false);const up=(e:PointerEvent)=>{const t=e.target as HTMLElement;if(live.current.room&&t?.closest?.('.sys-bar,.mcp,.atc-panel,.world-touch'))setTimeout(()=>(document.activeElement as HTMLElement|null)?.blur?.(),0);};window.addEventListener('pointerup',up);return()=>window.removeEventListener('pointerup',up);},[]);useEffect(()=>{setArrRw('');},[to]);
- useEffect(()=>{const [dep,arr]=PHOTOREAL_ONLY?['EDDK','EDDL']:['RJTT','RJAA'];void Promise.all([dep,arr].map(q=>fetch(`/api/world?q=${q}`).then(r=>r.json()))).then(([a,b])=>{setFrom(a.airports.find((x:Airport)=>x.id===dep));setTo(b.airports.find((x:Airport)=>x.id===arr));}).catch(()=>setError('Airport catalog did not load. Reload to retry.'));const params=new URLSearchParams(location.search),invite=params.get('world');if(invite){setCode(invite);setMode('join');}try{const s=JSON.parse(sessionStorage.getItem('hinode-world-tab')??localStorage.getItem('hinode-world-session')??'null') as Session|null;if(s)setSaved(s);const st=JSON.parse(localStorage.getItem('hinode-settings')??'null');if(st){/* v2: flights start in daylight; an older saved "real time" is reset once */if(st.v!==2)delete st.time;delete st.v;setSettings({...DEFAULT_SETTINGS,...st});}const gk=localStorage.getItem('hinode-google-key')??process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY??'';setGoogleKey(gk);setKeyDraft(gk);}catch{}setKeysLoaded(true);},[]);
- useEffect(()=>{try{localStorage.setItem('hinode-settings',JSON.stringify({...settings,v:2}));}catch{}if(sim)sim.settings=settings;},[settings,sim]);
- useEffect(()=>{if(!session)return;const id=setInterval(()=>void api('get',session).then(d=>apply(d.room)).catch(()=>setConnected(false)),1400);return()=>clearInterval(id);},[session,apply]);
- useEffect(()=>{if(!toast)return;const id=setTimeout(()=>setToast(''),3200);return()=>clearTimeout(id);},[toast]);
- const store=(s:Session)=>{try{sessionStorage.setItem('hinode-world-tab',JSON.stringify(s));localStorage.setItem('hinode-world-session',JSON.stringify(s));}catch{}setSaved(s);setSession(s);history.replaceState(null,'',`?world=${s.code}`);};
- const begin=async(r:WorldRoom)=>{// Reuse the weather the planner already fetched; otherwise wait at most 3 s so the flight starts promptly.
-  const quick=(ap:Airport,known:Weather|null)=>known&&known.station===ap.id||known&&settings.weather!=='live'?Promise.resolve(known):settings.weather==='live'?Promise.race([loadMetars([ap.id],ap).then(m=>weatherAt('live',ap,m,null,ap.elevation)),new Promise<Weather>(res=>setTimeout(()=>res(weatherAt('clear',ap,[],null,ap.elevation)),3000))]):Promise.resolve(weatherAt(settings.weather,ap,[],null,ap.elevation));
-  const [d,a]=await Promise.all([quick(r.departure,from?.id===r.departure.id?wxDep:null),quick(r.arrival,to?.id===r.arrival.id?wxArr:null)]);setSim(createSim(r,name||'Hinode 1',settings,d,a));setT(null);setReport(null);setCrash('');setPanel('guide');setView(v=>({...v,camera:0}));};
- async function launch(practice=false){setBusy(true);setError('');try{const dr=depRw||(from?activeRunway(airportEnds(from),wxDep).ident:''),ar=arrRw||(to?activeRunway(airportEnds(to),wxArr).ident:'');
-  if(practice){if(!from||!to)return;setSession(null);const r:WorldRoom={code:`SOLO-${Date.now()}`,seat:0,names:[name||'Pilot',null],departure:from,arrival:to,planes:[worldSpawn(from,0,0,aircraft,start,dr,to,ar),worldSpawn(from,1,0,aircraft,'runway',dr)],version:0,created:Date.now(),start,runway:dr,arrivalRunway:ar};setRoom(r);history.replaceState(null,'','/');await begin(r);}
-  else{const d=await api(mode,undefined,{name:name||'Pilot',code,departure:from?.id,arrival:to?.id,aircraft,start,runway:dr,arrivalRunway:ar});store({code:d.room.code,token:d.token!});apply(d.room);await begin(d.room);setSettings(s=>({...s,simRate:1}));}}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
- const move=useCallback(async(p:WorldPlane)=>{const {room,session}=live.current;if(!room)return;if(!session){setRoom(r=>r?{...r,planes:[p,r.planes[1]]}:r);return;}if(sending.current)return;sending.current=true;try{apply((await api('move',session,{value:p})).room);}catch{setConnected(false);}finally{sending.current=false;}},[apply]);
- const recover=useCallback(async()=>{const {room,session}=live.current;if(!room)return;setError('');setReport(null);setCrash('');try{if(session)apply((await api('recover',session)).room);else{const p=room.planes[0];setRoom({...room,planes:[worldSpawn(room.departure,0,p.recovery+1,(p.aircraft??'twin') as AircraftId,room.start==='cold'?'cold':'runway',room.runway),room.planes[1]]});}}catch(e){setError((e as Error).message);}},[apply]);
- const onEvent=useCallback((e:CanvasEvent)=>{if(e.type==='ap')setToast(e.text);if(e.type==='crash')setCrash(e.reason);if(e.type==='touchdown'){setToast(`Touchdown ${e.data.fpm} fpm · ${e.data.g} G · ${e.data.rating}`);if(e.atArrival)setTimeout(()=>setReport({td:e.data,arrival:true}),9000);}},[]);
- const s=sim,ap=s?.ap,i=s?.input,plane=t?.plane,a=spec(plane?.aircraft??aircraft),jet=a.engine==='jet';
- const atc=(id:string)=>{if(s?.snap){s.atc.request(id,s.snap);tick(n=>n+1);}};
- const atcOptions=s?.snap?s.atc.options(s.snap):[];
- useEffect(()=>{const key=(e:KeyboardEvent)=>{if((e.target as HTMLElement)?.matches('input[type=text],input[type=search],input[type=password],input:not([type]),textarea,select')||e.repeat)return;const {room,sim}=live.current;
-  if(e.code==='Escape')setPanel(p=>p?null:'settings');if(!room)return;if(e.code==='KeyC'&&!e.ctrlKey)setView(v=>({...v,camera:(v.camera+1)%4}));if(e.code==='KeyH')setView(v=>({...v,clean:!v.clean}));if(e.code==='KeyU')setView(v=>({...v,panel:!v.panel}));if(e.code==='KeyM')setAtcOpen(o=>!o);if(e.code==='KeyR'&&!e.ctrlKey)void recover();
-  if(e.code==='KeyO'&&sim&&spec(sim.aircraft).engine!=='none'){sim.ap.copilot=!sim.ap.copilot;if(sim.ap.copilot){sim.ap.fd=true;}else sim.ap.master=false;setToast(sim.ap.copilot?'AI COPILOT FLYING':'AI COPILOT OFF');}
-  if(!live.current.session&&(e.code==='Equal'||e.code==='NumpadAdd'||e.code==='Minus'||e.code==='NumpadSubtract'))setSettings(st=>{const r=e.code==='Equal'||e.code==='NumpadAdd'?Math.min(16,st.simRate*2):Math.max(1,st.simRate/2);setToast(`SIM RATE ${r}×`);return{...st,simRate:r};});
-  const d=/^Digit([1-9])$/.exec(e.code);if(d&&sim?.snap){const opt=sim.atc.options(sim.snap)[Number(d[1])-1];if(opt){sim.atc.request(opt.id,sim.snap);tick(n=>n+1);}}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key);},[recover]);
- const leave=()=>{setRoom(null);setSession(null);setSim(null);setT(null);setPanel(null);setReport(null);setCrash('');history.replaceState(null,'','/');};
- const invite=async()=>{if(!room)return;try{await navigator.clipboard.writeText(`${location.origin}/?world=${room.code}&join=1`);setCopied(true);setTimeout(()=>setCopied(false),2500);}catch{setError(`Share flight code ${room.code}`);}};
- const bind=(key:'pitch'|'roll',value:number)=>({onPointerDown:(e:React.PointerEvent<HTMLButtonElement>)=>{e.currentTarget.setPointerCapture(e.pointerId);if(s)s.touch[key]=value;},onPointerUp:()=>{if(s)s.touch[key]=0;},onPointerCancel:()=>{if(s)s.touch[key]=0;}});
- const set=(fn:(sim:Sim)=>void)=>{if(s){fn(s);tick(n=>n+1);}};
- const dist=from&&to?geoDistance(from,to)/1000:0,sp=spec(aircraft),range=rangeKm(sp),cruise=cruiseAltitudeFt(sp,dist),blockMin=dist/((sp.engine==='jet'?430:sp.cruiseIas*1.05)*1.852)*60+(sp.engine==='jet'?25:12);
- const det=a.flapDetents,flapIdx=plane?det.reduce((b,x,k)=>Math.abs(x-plane.flaps)<Math.abs(det[b]-plane.flaps)?k:b,0):0,targetIdx=i?det.reduce((b,x,k)=>Math.abs(x-i.flaps)<Math.abs(det[b]-i.flaps)?k:b,0):0;
- const MetarLine=({wx,label}:{wx:Weather|null;label:string})=><p className="metar"><b>{label}</b>{wx?wx.metar||`${wx.source} · wind ${Math.round(wx.winds[0].dir)}°/${Math.round(wx.winds[0].speed/.5144)} kt · vis ${wx.visibility>=9999?'10+ km':`${(wx.visibility/1000).toFixed(1)} km`} · QNH ${Math.round(wx.qnh)}`:'Loading weather…'}</p>;
- return <main className={`world-app ${room?'world-flying':''} ${view.clean?'world-clean':''} ${view.camera===1?'cam-cockpit':''}`}>
-  {keysLoaded&&<WorldCanvas googleKey={googleKey||undefined} room={room} sim={sim} view={view} sound={sound} paused={!!panel||!!report} shared={!!session} quality={settings.quality} preview={from?{lat:from.lat,lon:from.lon,elevation:from.elevation,heading:airportEnds(from).find(e=>e.ident===(depRw||activeRunway(airportEnds(from),wxDep).ident))?.heading??0}:null} onMove={move} onTelemetry={setT} onEvent={onEvent} onError={setError}/>}
-  <header className="world-header"><button className="flight-brand" onClick={leave}><span className="sun-mark">日</span><span>HINODE<small>FLIGHT SIMULATOR</small></span></button><span className="world-badge">{room?`${room.departure.id} → ${room.arrival.id} · ${a.name.toUpperCase()}`:(PHOTOREAL_ONLY?'REAL WEATHER · REAL TRAFFIC · PHOTOREAL EUROPE':'REAL WEATHER · REAL TRAFFIC · THE WHOLE EARTH')}</span><nav><button aria-label={sound?'Mute sound':'Enable sound'} onClick={()=>setSound(!sound)}>{sound?<Volume2 size={17}/>:<VolumeX size={17}/>}<span>{sound?'Sound on':'Sound off'}</span></button><button aria-label="Flight guide" onClick={()=>setPanel('guide')}>?</button>{room&&<><button aria-label="Settings and pause" onClick={()=>setPanel('settings')}><SlidersHorizontal size={17}/></button>{session&&<button onClick={invite}>{copied?<Check size={17}/>:<Users size={17}/>}<span>{copied?'Copied':'Invite pilot'}</span></button>}</>}<a href="/adventure">Japan expedition ↗</a></nav></header>
-  {!room?<><section className="world-hero"><p className="flight-kicker">OPEN SKIES · REAL GEOGRAPHY · LIVE WORLD</p><h1>Every journey<br/>starts on<br/><em>the runway.</em></h1>{PHOTOREAL_ONLY?<p>Cologne, Düsseldorf, the Ruhr and Strasbourg in full photogrammetry 3D. Live METAR weather,<br/>live air traffic and ATC with voice, flown in an Airbus A320 with a real flight deck.</p>:<p>Twenty aircraft with a real aerodynamic flight model. Live METAR weather and winds aloft,<br/>live air traffic, ATC with voice, autopilot and autoland — anywhere on Earth.</p>}<div className="world-hero-tags"><span><Plane size={15}/>{PHOTOREAL_ONLY?`${PHOTOREAL_AIRPORTS.length} photoreal airports`:'72,000 airports'}</span><span><CloudSun size={15}/>Live weather</span><span><Radio size={15}/>ATC</span><span><Users size={15}/>Fly together</span></div></section>
-   <section className="world-planner sim-planner"><small>FLIGHT PLANNER</small><div className="flight-tabs"><button className={mode==='create'?'active':''} onClick={()=>setMode('create')}>Plan a flight</button><button className={mode==='join'?'active':''} onClick={()=>setMode('join')}>Join a pilot</button></div>
-    <label className="world-label">CALL SIGN<input value={name} maxLength={18} placeholder="e.g. JAL123, N172SP or your name" onChange={e=>setName(e.target.value)}/></label>
-    <div className="fleet"><div className="fleet-tabs">{CATEGORIES.filter(c=>OFFERED.some(id=>AIRCRAFT[id].category===c)).map(c=><button key={c} className={cat===c?'active':''} onClick={()=>{setCat(c);const first=OFFERED.find(id=>AIRCRAFT[id].category===c);if(first&&AIRCRAFT[aircraft].category!==c)setAircraft(first);}}>{c}<small>{OFFERED.filter(id=>AIRCRAFT[id].category===c).length}</small></button>)}</div>
-     <div className="aircraft-cards">{OFFERED.filter(id=>AIRCRAFT[id].category===cat).map(id=>{const x=AIRCRAFT[id];return <button key={id} className={aircraft===id?'active':''} onClick={()=>setAircraft(id)}><b>{x.name}</b><small>{x.kind}</small></button>;})}</div>
-     <div className="fleet-detail"><p>{sp.summary}</p><div><span><b>{(sp.mtow/1000).toFixed(sp.mtow<10000?2:0)}</b> t MTOW</span><span><b>{sp.engine==='none'?'—':sp.engines}</b> {sp.engine==='none'?'no engine':sp.engine==='jet'?'turbofans':sp.engine==='turboprop'?'turboprops':'pistons'}</span><span><b>{sp.cruiseMach?`M.${Math.round(sp.cruiseMach*100)}`:`${sp.cruiseIas} kt`}</b> cruise</span><span><b>{sp.range?`${sp.range.toLocaleString()}`:'—'}</b> km range</span><span><b>{sp.fbw?'FBW':'Manual'}</b> controls</span></div></div></div>
-    {mode==='create'?<><div className="planner-row"><AirportPicker label="DEPARTURE" value={from} onChange={setFrom}/><AirportPicker label="ARRIVAL" value={to} onChange={setTo}/></div>
-     <div className="planner-row"><RunwaySelect label="DEPARTURE RUNWAY" airport={from} wx={wxDep} value={depRw} onChange={setDepRw}/><RunwaySelect label="ARRIVAL RUNWAY" airport={to} wx={wxArr} value={arrRw} onChange={setArrRw}/></div>
-     <MetarLine wx={wxDep} label={from?.id??'DEP'}/><MetarLine wx={wxArr} label={to?.id??'ARR'}/>
-     <div className="planner-row three"><label className="rw-select"><span>START</span><select value={start} onChange={e=>setStart(e.target.value as StartMode)}>{START_MODES.map(m=><option key={m.id} value={m.id}>{m.label} — {m.detail}</option>)}</select></label><label className="rw-select"><span>WEATHER</span><select value={settings.weather} onChange={e=>setSettings(st=>({...st,weather:e.target.value as WeatherPreset}))}>{WEATHER_PRESETS.map(w=><option key={w.id} value={w.id}>{w.label}</option>)}</select></label><label className="rw-select"><span>TIME</span><select value={settings.time} onChange={e=>setSettings(st=>({...st,time:e.target.value as Settings['time']}))}>{TIME_PRESETS.map(w=><option key={w.id} value={w.id}>{w.label}</option>)}</select></label></div>
-     <div className="route-summary"><span>{dist?dist.toFixed(0):'—'} km</span><span>Cruise {cruise>=18000?`FL${cruise/100}`:`${cruise} ft`}</span><span>≈ {fmtTime(blockMin*60)} block</span></div>
-     {dist>range&&<p className="range-warn">This route ({dist.toFixed(0)} km) exceeds the {sp.name}&apos;s range of about {range.toFixed(0)} km. Fuel will run out — pick the airliner, a closer destination, or enable unlimited fuel in settings.</p>}</>
-     :<label className="world-label">INVITATION CODE<input placeholder="Six-character code" maxLength={6} value={code} onChange={e=>setCode(e.target.value.toUpperCase())}/></label>}
-    <button className="launch-button" disabled={busy||mode==='create'&&(!from||!to)} onClick={()=>void launch()}>{busy?'Preparing your flight…':mode==='create'?'Create shared flight':'Join this flight'}<ArrowUpRight size={18}/></button>{mode==='create'&&<button className="world-practice" disabled={busy||!from||!to} onClick={()=>void launch(true)}>Fly solo (time acceleration available) →</button>}
-    {saved&&<button className="resume-flight" onClick={()=>void api('get',saved).then(async d=>{store(saved);apply(d.room);await begin(d.room);}).catch(e=>setError(e.message))}>Resume flight {saved.code}</button>}</section></>:<>
-   {s&&<nav className="sim-toolbar" aria-label="Flight panels">
-    <button className={ui.info?'on':''} onClick={()=>setUi(u=>({...u,info:!u.info}))}>Flight</button>
-    <button className={ui.ap||ap?.master?'on':''} onClick={()=>setUi(u=>({...u,ap:!u.ap}))}>Autopilot{ap?.master?' ●':''}</button>
-    <button className={atcOpen?'on':''} onClick={()=>setAtcOpen(o=>!o)}>ATC{atcOptions.length?<small>{atcOptions.length}</small>:null}</button>
-    <button className={view.panel?'on':''} onClick={()=>setView(v=>({...v,panel:!v.panel}))}>Instruments</button>
-    <button className={ui.sys?'on':''} onClick={()=>setUi(u=>({...u,sys:!u.sys}))}>Controls</button>
-    <button onClick={()=>setView(v=>({...v,camera:(v.camera+1)%4}))}>{['Chase','Cockpit','Orbit','Tower'][view.camera]} view</button>
-   </nav>}
-   {t&&plane&&!view.clean&&view.camera!==1&&!view.panel&&<div className="flight-strip">
-    <span><small>IAS</small><b>{Math.round((plane.ias??0)/.5144)}</b><i>kt</i></span>
-    <span><small>ALT</small><b>{Math.round(t.altInd/10)*10}</b><i>ft</i></span>
-    <span><small>HDG</small><b>{String(Math.round(plane.heading)%360).padStart(3,'0')}</b><i>°</i></span>
-    <span><small>V/S</small><b>{Math.round(plane.vertical*196.85/50)*50}</b><i>fpm</i></span>
-    <span><small>{jet?'N1':a.engine==='none'?'—':'PWR'}</small><b>{a.engine==='none'?'—':Math.round((plane.n1??0)*100)}</b><i>%</i></span>
-    <span><small>FLAPS</small><b>{a.flapLabels[flapIdx]}</b></span>
-    {a.gearRetract&&<span className={(plane.gearPos??1)>.99?'ok':(plane.gearPos??1)>.01?'warn':''}><small>GEAR</small><b>{(plane.gearPos??1)>.99?'DN':(plane.gearPos??1)<.01?'UP':'···'}</b></span>}
-    <span className="phase"><small>{(t.remaining/1852).toFixed(0)} NM · {plane.gs&&plane.gs>20?fmtTime(t.remaining/plane.gs):'—'}</small><b>{ap?.copilot?'AI COPILOT':ap?.master?`AP ${shortMode(ap).lat} ${shortMode(ap).vert}`:plane.phase.split(' · ')[0]}</b></span>
-   </div>}
-   {ui.info&&<section className="world-route"><p className="flight-kicker">{session?`SHARED FLIGHT ${room.code}`:'SOLO FLIGHT'}{t&&t.rate>1?` · ${t.rate}× SIM RATE`:''}</p><h2>{room.departure.iata||room.departure.id} <span>→</span> {room.arrival.iata||room.arrival.id}</h2><p>{room.arrival.name}</p>
-    <small>{plane?.phase??'LOADING'}{ap?.copilot?' · AI COPILOT':''}</small>
-    {t&&plane&&<div className="route-stats"><span><b>{(t.remaining/1852).toFixed(0)}</b> NM to go</span><span><b>{plane.gs&&plane.gs>20?fmtTime(t.remaining/plane.gs):'—'}</b> ETE</span><span><b>{Math.round(plane.fuel/100*a.fuelMax)}</b> kg fuel</span><span><b>{String(Math.round(t.wind.dir)).padStart(3,'0')}°/{Math.round(t.wind.speed)}</b> kt wind</span></div>}
-    {t?.wx&&<small className="wx-source">{t.wx.source}{t.wx.station?` · ${t.wx.station}`:''} · QNH {Math.round(t.wx.qnh)} · OAT {Math.round(t.oat)}°C{t.traffic?` · ${t.traffic} live aircraft nearby`:''}</small>}
-    <div className="pilot-progress">{room.names.map((n,k)=>n&&<span key={k}><i/>{n}{k===room.seat?' · you':''}</span>)}</div>{!room.names[1]&&session&&<small>Invite a companion with code {room.code}</small>}</section>}
-   {ap&&i&&ui.ap&&<section className="mcp" aria-label="Autopilot">
-    <button className={ap.master?'on':''} onClick={()=>set(x=>{x.ap.master=!x.ap.master;x.ap.copilot=false;if(x.ap.master){if(['TO','ROLLOUT'].includes(x.ap.lat))x.ap.lat='HDG';if(['TO','PIT','FLARE'].includes(x.ap.vert))x.ap.vert='VS';}})}>AP <kbd>P</kbd></button>
-    <button className={ap.fd?'on':''} onClick={()=>set(x=>{x.ap.fd=!x.ap.fd;})}>FD</button>
-    <button className={ap.athr?'on':''} onClick={()=>set(x=>{x.ap.athr=!x.ap.athr;})}>{jet?'A/THR':'A/T'} <kbd>T</kbd></button>
-    <div className="knob"><small>SPD</small><button onClick={()=>set(x=>{x.ap.spd=Math.max(40,x.ap.spd-5);})}>−</button><b>{ap.spd}</b><button onClick={()=>set(x=>{x.ap.spd+=5;})}>+</button></div>
-    <div className="knob"><small>HDG</small><button onClick={()=>set(x=>{x.ap.hdg=(x.ap.hdg+355)%360;})}>−</button><b>{String(ap.hdg).padStart(3,'0')}</b><button onClick={()=>set(x=>{x.ap.hdg=(x.ap.hdg+5)%360;})}>+</button></div>
-    <button className={ap.lat==='HDG'?'on':''} onClick={()=>set(x=>{x.ap.lat='HDG';})}>HDG</button><button className={ap.lat==='NAV'?'on':''} onClick={()=>set(x=>{x.ap.lat='NAV';})}>NAV</button><button className={ap.apr?'on':''} onClick={()=>set(x=>{x.ap.apr=!x.ap.apr;if(!x.ap.apr&&x.ap.i){x.ap.i.locCap=false;x.ap.i.gsCap=false;}})}>APR</button>
-    <div className="knob"><small>ALT</small><button onClick={()=>set(x=>{x.ap.alt=Math.max(0,x.ap.alt-(x.ap.alt>=10000?1000:500));})}>−</button><b>{ap.alt}</b><button onClick={()=>set(x=>{x.ap.alt+=x.ap.alt>=10000?1000:500;})}>+</button></div>
-    <button className={ap.vert==='ALT'||ap.vert==='ALTS'?'on':''} onClick={()=>set(x=>{x.ap.vert='ALT';x.ap.alt=Math.round((t?.altInd??x.ap.alt)/100)*100;})}>ALT</button>
-    <div className="knob"><small>V/S</small><button onClick={()=>set(x=>{x.ap.vs-=100;x.ap.vert='VS';})}>−</button><b>{ap.vs}</b><button onClick={()=>set(x=>{x.ap.vs+=100;x.ap.vert='VS';})}>+</button></div>
-    <button className={ap.vert==='FLC'?'on':''} onClick={()=>set(x=>{x.ap.vert='FLC';x.ap.spd=Math.round((x.ap.spd||Math.round((plane?.ias??0)/.5144)));})}>FLC</button>
-    <button disabled={a.engine==='none'} title={a.engine==='none'?'Sailplanes are flown by hand':undefined} className={`copilot ${ap.copilot?'on':''}`} onClick={()=>set(x=>{x.ap.copilot=!x.ap.copilot;if(!x.ap.copilot)x.ap.master=false;else x.ap.fd=true;})}><Bot size={15}/>AI copilot <kbd>O</kbd></button>
-   </section>}
-   {s&&!atcOpen&&s.atcLines.length>0&&Date.now()-s.atcLines[s.atcLines.length-1].time<14000&&<button className="atc-ticker" onClick={()=>setAtcOpen(true)}><Radio size={13}/><b>{s.atcLines[s.atcLines.length-1].who==='pilot'?'YOU':s.atcLines[s.atcLines.length-1].station}</b><span>{s.atcLines[s.atcLines.length-1].text}</span><kbd>M</kbd></button>}
-   {s&&atcOpen&&<section className="atc-panel"><button className="atc-head" onClick={()=>setAtcOpen(!atcOpen)}><Radio size={15}/><b>{s.atc.station().name}</b><span>{s.atc.station().f.padEnd(7,'0')}</span><kbd>M</kbd></button>
-    {atcOpen&&<><div className="atc-log">{s.atcLines.slice(-7).map(l=><p key={l.id} className={l.who}><b>{l.who==='pilot'?'YOU':l.station}</b>{l.text}</p>)}{!s.atcLines.length&&<p className="info">Tune in: request your clearance, then call ready for departure. Press a number key to talk.</p>}</div>
-     <ol className="atc-options">{atcOptions.slice(0,9).map((o,k)=><li key={o.id}><button onClick={()=>atc(o.id)}><kbd>{k+1}</kbd>{o.label}</button></li>)}</ol></>}</section>}
-   {t&&(t.warnings.length>0||t.cautions.length>0)&&<div className={`master ${t.warnings.length?'warning':'caution'}`}>{t.warnings[0]??t.cautions[0]}</div>}
-   {plane?.ground&&!plane.crashed&&!ap?.copilot&&(t?.elapsed??0)<90&&(plane.gs??0)<30&&<div className="world-takeoff-tip">{plane.airborne?'Landed. Brakes: hold Space. Reverse thrust: F (airliner).':!plane.engine?((plane.n1??0)>.02?'Engine starting…':'Press I (or Ctrl+E) to start the engine. Release the parking brake: Ctrl+.'):i?.parking?'Release the parking brake: Ctrl+. (or the PARK button)':`E / Q (or Page Up / Down) set thrust — W/A/S/D only move the controls. Hold E, then at ${vSpeeds(a,aircraftMass(a,plane.fuel)).vr} kt pull ${settings.invertPitch?'W':'S'} to lift off. Or press O to let the AI copilot fly.`}</div>}
-   {i&&ui.sys&&<div className="world-controlbar sys-bar"><button onClick={()=>setPanel('settings')}><SlidersHorizontal size={15}/></button>
-    <button className={plane?.engine?'on':''} onClick={()=>set(x=>{x.input.engine=!x.input.engine;})}>{a.engines>1?'Engines':'Engine'} {plane?.engine?'ON':(plane?.n1??0)>.02&&i.engine?'START':'OFF'} <kbd>I</kbd></button>
-    <label>Thrust<input aria-label="Throttle" type="range" min="0" max="100" value={Math.round(i.throttle*100)} onChange={e=>set(x=>{x.input.throttle=Number(e.target.value)/100;x.ap.athr=false;})}/><span>{jet?`${((plane?.n1??0)*100).toFixed(0)}% N1`:`${Math.round((plane?.n1??0)*2700/10)*10} RPM`}</span></label>
-    <button onClick={()=>set(x=>{x.input.flaps=det[(targetIdx+1)%det.length];})}>Flaps {a.flapLabels[flapIdx]}{targetIdx!==flapIdx?`→${a.flapLabels[targetIdx]}`:''} <kbd>V</kbd></button>
-    {a.gearRetract&&<button className={(plane?.gearPos??1)>.99?'on':(plane?.gearPos??1)>.01?'warn':''} onClick={()=>set(x=>{x.input.gear=!x.input.gear;})}>Gear {i.gear?'DN':'UP'} <kbd>G</kbd></button>}
-    {jet&&<button className={i.spoilers>0?'warn':''} onClick={()=>set(x=>{x.input.spoilers=x.input.spoilers>.75?0:x.input.spoilers+.5;})}>Spoilers {i.spoilers?`${Math.round(i.spoilers*100)}%`:'RET'} <kbd>/</kbd></button>}
-    {jet&&<button className={i.reverse?'warn':''} onClick={()=>set(x=>{x.input.reverse=!x.input.reverse;})}>Reverse <kbd>F</kbd></button>}
-    {jet&&<button onClick={()=>set(x=>{x.input.autobrake=(x.input.autobrake+1)%4;})}>Autobrake {['OFF','LO','MED','MAX'][i.autobrake]}</button>}
-    <button className={i.parking?'warn':''} onClick={()=>set(x=>{x.input.parking=!x.input.parking;})}>Park brake <kbd>Ctrl .</kbd></button>
-    <button onClick={()=>setView(v=>({...v,camera:(v.camera+1)%4}))}>View {['chase','cockpit','orbit','tower'][view.camera]} <kbd>C</kbd></button>
-    <button className={view.panel?'on':''} onClick={()=>setView(v=>({...v,panel:!v.panel}))}><Gauge size={15}/> <kbd>U</kbd></button>
-    <button aria-label="Recover to departure runway" onClick={()=>void recover()}><RotateCcw size={15}/></button><button onClick={()=>setView(v=>({...v,clean:!v.clean}))}>{view.clean?'Show HUD':'Hide HUD'} <kbd>H</kbd></button></div>}
-   <div className="world-touch"><button {...bind('roll',-1)}>↶</button><button {...bind('pitch',1)}>Nose ↑</button><button {...bind('pitch',-1)}>Nose ↓</button><button {...bind('roll',1)}>↷</button><button onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);if(s)s.touch.brake=true;}} onPointerUp={()=>{if(s)s.touch.brake=false;}} onPointerCancel={()=>{if(s)s.touch.brake=false;}}>Brake</button></div>
-  </>}
-  {toast&&<div className="sim-toast">{toast}</div>}
-  {crash&&<div className="flight-overlay"><section className="flight-modal world-modal result" role="alertdialog" aria-label="Crash"><p className="flight-kicker">FLIGHT ENDED</p><h2>{crash.toLowerCase().replace(/^./,c=>c.toUpperCase())}</h2><p>The aircraft is damaged beyond continued flight. Check sink rate (under 600 fpm), bank (under 8° in the airliner), gear down and the runway centerline.</p><button className="launch-button" onClick={()=>void recover()}>Return to the runway <RotateCcw size={18}/></button><button className="world-practice" onClick={leave}>New flight plan →</button></section></div>}
-  {report&&!crash&&room&&<div className="flight-overlay"><section className="flight-modal world-modal result" role="dialog" aria-label="Landing report"><button className="flight-close" aria-label="Close" onClick={()=>setReport(null)}><X size={21}/></button><p className="flight-kicker">LANDING REPORT · {room.arrival.id} RWY {s?.plan.arrival.ident}</p><h2>{report.td.rating==='BUTTER'?'Butter.':report.td.rating==='SMOOTH'?'Smooth landing.':report.td.rating==='FIRM'?'Firm, but safe.':'Hard landing.'}</h2>
-   <div className="report-grid"><div><small>TOUCHDOWN RATE</small><b>{report.td.fpm}<em> fpm</em></b></div><div><small>LOAD</small><b>{report.td.g}<em> G</em></b></div><div><small>SPEED</small><b>{report.td.speed}<em> kt</em></b></div><div><small>FROM THRESHOLD</small><b>{report.td.fromThreshold??'—'}<em> m</em></b></div><div><small>CENTERLINE</small><b>{report.td.centerline!==null?Math.abs(report.td.centerline):'—'}<em> m {report.td.centerline!==null?(report.td.centerline>0?'R':'L'):''}</em></b></div><div><small>BANK / CRAB</small><b>{report.td.bank}° / {report.td.crab}°</b></div><div><small>FLIGHT TIME</small><b>{fmtTime(t?.elapsed??0)}</b></div><div><small>DISTANCE</small><b>{((plane?.distance??0)/1852).toFixed(0)}<em> NM</em></b></div></div>
-   <button className="launch-button" onClick={leave}>Plan the next flight <Plane size={18}/></button><button className="world-practice" onClick={()=>setReport(null)}>Keep taxiing →</button></section></div>}
-  {panel&&<div className="flight-overlay"><section className="flight-modal world-modal" role="dialog" aria-modal="true" aria-label={panel==='settings'?'Settings':'Flight guide'}><button className="flight-close" aria-label="Close dialog" onClick={()=>setPanel(null)}><X size={21}/></button><p className="flight-kicker">{room?'PAUSED · ':''}{panel==='guide'?'PILOT BRIEFING':'SETTINGS & ASSISTS'}</p><div className="flight-tabs"><button className={panel==='guide'?'active':''} onClick={()=>setPanel('guide')}>Briefing & controls</button><button className={panel==='settings'?'active':''} onClick={()=>setPanel('settings')}>Settings</button></div>
-   {panel==='guide'?<div className="flight-guide"><article><b>1. Before departure</b><p>Keys: W/S pitch (S raises the nose), A/D roll and steer, Z/X rudder, <b>E/Q thrust</b>, Space brakes. Open ATC (M) and press 1–9 to talk: listen to ATIS, request your IFR clearance, then call ready for departure. Cold & dark: I or Ctrl+E starts the engines (the jet takes ~20 s to spool). Ctrl+. releases the parking brake.</p></article><article><b>2. Take off</b><p>Flaps for takeoff (V), thrust up (E or the slider). Keep the centerline with Z / X. At the cyan R bug on the speed tape, pull back gently (S / ↓) — about 3°/s in the airliner. Gear up (G) with a positive climb, flaps up as you accelerate.</p></article><article><b>3. Autopilot</b><p>P engages the autopilot. NAV flies the magenta route, HDG the cyan bug, ALT holds, V/S and FLC climb or descend to the selected altitude; A/THR holds the SPD bug. APR arms the localizer and glideslope — the airliner and twins autoland. O hands everything to the AI copilot.</p></article><article><b>4. Land</b><p>Follow ATC's descent. Gear down, landing flaps, final approach speed (REF bug). The PAPI shows two white and two red on a 3° path. Touch down under 600 fpm with wings level, then brakes (Space), reverse (F) and spoilers deploy automatically in the airliner.</p></article><article><b>5. Views & instruments</b><p>C cycles chase, cockpit, orbit and tower views; drag to look, wheel to zoom. U toggles the glass panel: PFD, navigation display with live TCAS traffic, and engine page. B sets the altimeter to local QNH; Shift+B standard.</p></article><article><b>6. What is real</b><p>Live METAR weather and winds aloft, real ADS-B traffic, 72,603 airports with their runways, open satellite and national orthophoto imagery, ISA atmosphere and a 6-DOF aerodynamic model with published-class performance. Missions, frequencies and the aircraft liveries are fictional; do not use for real navigation.</p></article></div>
-   :<div className="aircraft-settings"><label><span>Stability assist<small>Holds attitude when you release the stick (light aircraft). The airliner is always fly-by-wire.</small></span><input type="checkbox" checked={settings.stability} onChange={e=>setSettings(st=>({...st,stability:e.target.checked}))}/></label>
-    <label><span>Invert pitch keys<small>Off: S / ↓ raises the nose (like pulling a yoke). On: W / ↑ raises the nose.</small></span><input type="checkbox" checked={settings.invertPitch} onChange={e=>setSettings(st=>({...st,invertPitch:e.target.checked}))}/></label>
-    <label><span>Auto-rudder<small>Coordinates turns automatically.</small></span><input type="checkbox" checked={settings.autoRudder} onChange={e=>setSettings(st=>({...st,autoRudder:e.target.checked}))}/></label>
-    <label><span>Unlimited fuel</span><input type="checkbox" checked={settings.unlimitedFuel} onChange={e=>setSettings(st=>({...st,unlimitedFuel:e.target.checked}))}/></label>
-    <label><span>Live air traffic<small>Real aircraft from the adsb.lol ADS-B network, shown in 3D and on the navigation display.</small></span><input type="checkbox" checked={settings.traffic} onChange={e=>setSettings(st=>({...st,traffic:e.target.checked}))}/></label>
-    <label><span>Weather</span><select value={settings.weather} onChange={e=>setSettings(st=>({...st,weather:e.target.value as WeatherPreset}))}>{WEATHER_PRESETS.map(w=><option key={w.id} value={w.id}>{w.label}</option>)}</select></label>
-    <label><span>Time of day</span><select value={settings.time} onChange={e=>setSettings(st=>({...st,time:e.target.value as Settings['time']}))}>{TIME_PRESETS.map(w=><option key={w.id} value={w.id}>{w.label}</option>)}</select></label>
-    <label><span>Simulation rate<small>{session?'Shared flights always run in real time.':'Speeds up long flights (also + / − keys).'}</small></span><select disabled={!!session} value={settings.simRate} onChange={e=>setSettings(st=>({...st,simRate:Number(e.target.value)}))}>{[1,2,4,8,16].map(r=><option key={r} value={r}>{r}×</option>)}</select></label>
-    <label><span>Graphics quality<small>Applies to the next flight.</small></span><select value={settings.quality} onChange={e=>setSettings(st=>({...st,quality:e.target.value as Settings['quality']}))}><option value="performance">Performance</option><option value="balanced">Balanced</option><option value="high">High (shadows)</option></select></label>
-    <label><span>ATC voices</span><input type="checkbox" checked={settings.voice} onChange={e=>setSettings(st=>({...st,voice:e.target.checked}))}/></label>
-    <label><span>Cockpit callouts<small>Radio altitude, V1/rotate, GPWS warnings.</small></span><input type="checkbox" checked={settings.callouts} onChange={e=>setSettings(st=>({...st,callouts:e.target.checked}))}/></label>
-    {ap&&<label><span>Altimeter<small>{ap.std?'Standard 1013 hPa':`QNH ${ap.baro} hPa`}{t?.wx?` · local ${Math.round(t.wx.qnh)}`:''}</small></span><button onClick={()=>set(x=>{x.ap.baro=Math.round(x.wx?.qnh??1013);x.ap.std=false;})}>Set QNH <kbd>B</kbd></button></label>}
-    <p>Gamepad: left stick flies, right stick looks, triggers set thrust, bumpers rudder, B brakes. Sound must be switched on (top right) for engines, ATC and callouts.</p></div>}
-   <button className="launch-button" onClick={()=>setPanel(null)}>{room?'Resume flight':'Back to the planner'}<Plane size={18}/></button><a className="world-credits" href="/flight/credits.txt" target="_blank" rel="noreferrer">Scenery, data, aircraft and software credits</a></section></div>}
-  {!connected&&room&&<div className="world-notice">Reconnecting to shared flight…</div>}{error&&<div className="world-error" role="alert">{error}<button aria-label="Dismiss error" onClick={()=>setError('')}><X size={16}/></button></div>}
- </main>;
+const OFFERED = PHOTOREAL_ONLY
+  ? AIRCRAFT_IDS.filter((id) => AIRCRAFT[id].model.url.includes('/models/fg/'))
+  : AIRCRAFT_IDS;
+type Session = { code: string; token: string };
+async function api(type: string, session?: Session, extra?: object) {
+  const res = await fetch('/api/world', {
+    method: 'POST',
+    signal: AbortSignal.timeout(12000),
+    headers: {
+      'Content-Type': 'application/json',
+      ...(session ? { 'x-player-token': session.token } : {}),
+    },
+    body: JSON.stringify({ type, code: session?.code, ...extra }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? 'Flight connection unavailable.');
+  return data as { room: WorldRoom; token?: string };
+}
+function AirportPicker({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: Airport | null;
+  onChange: (a: Airport) => void;
+}) {
+  const [q, setQ] = useState(''),
+    [rows, setRows] = useState<Airport[]>([]),
+    [open, setOpen] = useState(false);
+  useEffect(() => {
+    const abort = new AbortController(),
+      timer = setTimeout(
+        () =>
+          void fetch(`/api/world?q=${encodeURIComponent(q)}`, { signal: abort.signal })
+            .then((r) => r.json())
+            .then((d) => setRows(d.airports))
+            .catch(() => {}),
+        250,
+      );
+    return () => {
+      clearTimeout(timer);
+      abort.abort();
+    };
+  }, [q]);
+  return (
+    <div className="airport-picker">
+      <label>{label}</label>
+      <button className="airport-selected" onClick={() => setOpen(!open)}>
+        <b>{value?.iata || value?.id || 'Select airport'}</b>
+        <span>{value?.name ?? 'Search the worldwide catalog'}</span>
+        <small>↗</small>
+      </button>
+      {open && (
+        <div className="airport-results">
+          <input
+            autoFocus
+            aria-label={`Search ${label.toLowerCase()} airport`}
+            placeholder="Name, city, IATA or ICAO code"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <div>
+            {rows.map((a) => (
+              <button
+                key={a.id}
+                onClick={() => {
+                  onChange(a);
+                  setOpen(false);
+                }}
+              >
+                <b>{a.iata || a.id}</b>
+                <span>
+                  {a.name}
+                  <small>
+                    {a.city} · {a.country} · {a.type.replaceAll('_', ' ')}
+                  </small>
+                </span>
+              </button>
+            ))}
+          </div>
+          {!rows.length && <p>No matching airport. Try its ICAO code.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+const fmtTime = (s: number) =>
+  `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}`;
+function useWeather(a: Airport | null, preset: WeatherPreset) {
+  const [wx, setWx] = useState<Weather | null>(null);
+  useEffect(() => {
+    if (!a) {
+      setWx(null);
+      return;
+    }
+    let alive = true;
+    if (preset !== 'live') {
+      setWx(weatherAt(preset, a, [], null, a.elevation));
+      return;
+    }
+    void loadMetars([a.id], a).then((m) => {
+      if (alive) setWx(weatherAt('live', a, m, null, a.elevation));
+    });
+    return () => {
+      alive = false;
+    };
+  }, [a, preset]);
+  return wx;
+}
+function RunwaySelect({
+  airport,
+  wx,
+  value,
+  onChange,
+  label,
+}: {
+  airport: Airport | null;
+  wx: Weather | null;
+  value: string;
+  onChange: (v: string) => void;
+  label: string;
+}) {
+  if (!airport) return null;
+  const ends = airportEnds(airport),
+    best = activeRunway(ends, wx);
+  return (
+    <label className="rw-select">
+      <span>{label}</span>
+      <select value={value || best.ident} onChange={(e) => onChange(e.target.value)}>
+        {ends.map((e) => {
+          const c = windComponents(wx, e.heading);
+          return (
+            <option key={e.ident} value={e.ident}>
+              RWY {e.ident} · {Math.round(e.length)} m · {c.head >= 0 ? 'head' : 'tail'}{' '}
+              {Math.abs(Math.round(c.head / 0.5144))} kt{e.ident === best.ident ? ' · ACTIVE' : ''}
+            </option>
+          );
+        })}
+      </select>
+    </label>
+  );
+}
+export default function WorldApp() {
+  const [room, setRoom] = useState<WorldRoom | null>(null),
+    [session, setSession] = useState<Session | null>(null),
+    [saved, setSaved] = useState<Session | null>(null),
+    [from, setFrom] = useState<Airport | null>(null),
+    [to, setTo] = useState<Airport | null>(null),
+    [name, setName] = useState(''),
+    [code, setCode] = useState(''),
+    [mode, setMode] = useState<'create' | 'join'>('create');
+  const [aircraft, setAircraft] = useState<AircraftId>('jet'),
+    [cat, setCat] = useState<Category>('Narrowbody'),
+    [start, setStart] = useState<StartMode>('runway'),
+    [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS),
+    [depRw, setDepRw] = useState(''),
+    [arrRw, setArrRw] = useState('');
+  const [keysLoaded, setKeysLoaded] = useState(false),
+    [googleKey, setGoogleKey] = useState(''),
+    [keyDraft, setKeyDraft] = useState(''),
+    [sim, setSim] = useState<Sim | null>(null),
+    [view, setView] = useState<View>({ camera: 0, clean: false, panel: false }),
+    [t, setT] = useState<Telemetry | null>(null),
+    [error, setError] = useState(''),
+    [busy, setBusy] = useState(false),
+    [sound, setSound] = useState(false),
+    [panel, setPanel] = useState<'guide' | 'settings' | null>(null),
+    [copied, setCopied] = useState(false),
+    [connected, setConnected] = useState(true),
+    [atcOpen, setAtcOpen] = useState(false),
+    [ui, setUi] = useState({ ap: false, sys: false, info: false }),
+    [toast, setToast] = useState(''),
+    [report, setReport] = useState<{ td: Touchdown; arrival: boolean } | null>(null),
+    [crash, setCrash] = useState(''),
+    [, tick] = useState(0);
+  const wxDep = useWeather(from, settings.weather),
+    wxArr = useWeather(to, settings.weather);
+  const live = useRef({ room, session, sim, t });
+  live.current = { room, session, sim, t };
+  const sending = useRef(false);
+  const apply = useCallback((next: WorldRoom) => {
+    setRoom((old) => (!old || old.code !== next.code || next.version >= old.version ? next : old));
+    setConnected(true);
+  }, []);
+  useEffect(() => {
+    setDepRw('');
+  }, [from]);
+  useEffect(() => {
+    if (innerWidth <= 760) setAtcOpen(false);
+    const up = (e: PointerEvent) => {
+      const t = e.target as HTMLElement;
+      if (live.current.room && t?.closest?.('.sys-bar,.mcp,.atc-panel,.world-touch'))
+        setTimeout(() => (document.activeElement as HTMLElement | null)?.blur?.(), 0);
+    };
+    window.addEventListener('pointerup', up);
+    return () => window.removeEventListener('pointerup', up);
+  }, []);
+  useEffect(() => {
+    setArrRw('');
+  }, [to]);
+  useEffect(() => {
+    const [dep, arr] = PHOTOREAL_ONLY ? ['EDDK', 'EDDL'] : ['RJTT', 'RJAA'];
+    void Promise.all([dep, arr].map((q) => fetch(`/api/world?q=${q}`).then((r) => r.json())))
+      .then(([a, b]) => {
+        setFrom(a.airports.find((x: Airport) => x.id === dep));
+        setTo(b.airports.find((x: Airport) => x.id === arr));
+      })
+      .catch(() => setError('Airport catalog did not load. Reload to retry.'));
+    const params = new URLSearchParams(location.search),
+      invite = params.get('world');
+    if (invite) {
+      setCode(invite);
+      setMode('join');
+    }
+    try {
+      const s = JSON.parse(
+        sessionStorage.getItem('hinode-world-tab') ??
+          localStorage.getItem('hinode-world-session') ??
+          'null',
+      ) as Session | null;
+      if (s) setSaved(s);
+      const st = JSON.parse(localStorage.getItem('hinode-settings') ?? 'null');
+      if (st) {
+        /* v2: flights start in daylight; an older saved "real time" is reset once */ if (
+          st.v !== 2
+        )
+          delete st.time;
+        delete st.v;
+        setSettings({ ...DEFAULT_SETTINGS, ...st });
+      }
+      const gk =
+        localStorage.getItem('hinode-google-key') ?? process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY ?? '';
+      setGoogleKey(gk);
+      setKeyDraft(gk);
+    } catch {}
+    setKeysLoaded(true);
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem('hinode-settings', JSON.stringify({ ...settings, v: 2 }));
+    } catch {}
+    if (sim) sim.settings = settings;
+  }, [settings, sim]);
+  useEffect(() => {
+    if (!session) return;
+    const id = setInterval(
+      () =>
+        void api('get', session)
+          .then((d) => apply(d.room))
+          .catch(() => setConnected(false)),
+      1400,
+    );
+    return () => clearInterval(id);
+  }, [session, apply]);
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(''), 3200);
+    return () => clearTimeout(id);
+  }, [toast]);
+  const store = (s: Session) => {
+    try {
+      sessionStorage.setItem('hinode-world-tab', JSON.stringify(s));
+      localStorage.setItem('hinode-world-session', JSON.stringify(s));
+    } catch {}
+    setSaved(s);
+    setSession(s);
+    history.replaceState(null, '', `?world=${s.code}`);
+  };
+  const begin = async (r: WorldRoom) => {
+    // Reuse the weather the planner already fetched; otherwise wait at most 3 s so the flight starts promptly.
+    const quick = (ap: Airport, known: Weather | null) =>
+      (known && known.station === ap.id) || (known && settings.weather !== 'live')
+        ? Promise.resolve(known)
+        : settings.weather === 'live'
+          ? Promise.race([
+              loadMetars([ap.id], ap).then((m) => weatherAt('live', ap, m, null, ap.elevation)),
+              new Promise<Weather>((res) =>
+                setTimeout(() => res(weatherAt('clear', ap, [], null, ap.elevation)), 3000),
+              ),
+            ])
+          : Promise.resolve(weatherAt(settings.weather, ap, [], null, ap.elevation));
+    const [d, a] = await Promise.all([
+      quick(r.departure, from?.id === r.departure.id ? wxDep : null),
+      quick(r.arrival, to?.id === r.arrival.id ? wxArr : null),
+    ]);
+    setSim(createSim(r, name || 'Hinode 1', settings, d, a));
+    setT(null);
+    setReport(null);
+    setCrash('');
+    setPanel('guide');
+    setView((v) => ({ ...v, camera: 0 }));
+  };
+  async function launch(practice = false) {
+    setBusy(true);
+    setError('');
+    try {
+      const dr = depRw || (from ? activeRunway(airportEnds(from), wxDep).ident : ''),
+        ar = arrRw || (to ? activeRunway(airportEnds(to), wxArr).ident : '');
+      if (practice) {
+        if (!from || !to) return;
+        setSession(null);
+        const r: WorldRoom = {
+          code: `SOLO-${Date.now()}`,
+          seat: 0,
+          names: [name || 'Pilot', null],
+          departure: from,
+          arrival: to,
+          planes: [
+            worldSpawn(from, 0, 0, aircraft, start, dr, to, ar),
+            worldSpawn(from, 1, 0, aircraft, 'runway', dr),
+          ],
+          version: 0,
+          created: Date.now(),
+          start,
+          runway: dr,
+          arrivalRunway: ar,
+        };
+        setRoom(r);
+        history.replaceState(null, '', '/');
+        await begin(r);
+      } else {
+        const d = await api(mode, undefined, {
+          name: name || 'Pilot',
+          code,
+          departure: from?.id,
+          arrival: to?.id,
+          aircraft,
+          start,
+          runway: dr,
+          arrivalRunway: ar,
+        });
+        store({ code: d.room.code, token: d.token! });
+        apply(d.room);
+        await begin(d.room);
+        setSettings((s) => ({ ...s, simRate: 1 }));
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const move = useCallback(
+    async (p: WorldPlane) => {
+      const { room, session } = live.current;
+      if (!room) return;
+      if (!session) {
+        setRoom((r) => (r ? { ...r, planes: [p, r.planes[1]] } : r));
+        return;
+      }
+      if (sending.current) return;
+      sending.current = true;
+      try {
+        apply((await api('move', session, { value: p })).room);
+      } catch {
+        setConnected(false);
+      } finally {
+        sending.current = false;
+      }
+    },
+    [apply],
+  );
+  const recover = useCallback(async () => {
+    const { room, session } = live.current;
+    if (!room) return;
+    setError('');
+    setReport(null);
+    setCrash('');
+    try {
+      if (session) apply((await api('recover', session)).room);
+      else {
+        const p = room.planes[0];
+        setRoom({
+          ...room,
+          planes: [
+            worldSpawn(
+              room.departure,
+              0,
+              p.recovery + 1,
+              (p.aircraft ?? 'twin') as AircraftId,
+              room.start === 'cold' ? 'cold' : 'runway',
+              room.runway,
+            ),
+            room.planes[1],
+          ],
+        });
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, [apply]);
+  const onEvent = useCallback((e: CanvasEvent) => {
+    if (e.type === 'ap') setToast(e.text);
+    if (e.type === 'crash') setCrash(e.reason);
+    if (e.type === 'touchdown') {
+      setToast(`Touchdown ${e.data.fpm} fpm · ${e.data.g} G · ${e.data.rating}`);
+      if (e.atArrival) setTimeout(() => setReport({ td: e.data, arrival: true }), 9000);
+    }
+  }, []);
+  const s = sim,
+    ap = s?.ap,
+    i = s?.input,
+    plane = t?.plane,
+    a = spec(plane?.aircraft ?? aircraft),
+    jet = a.engine === 'jet';
+  const atc = (id: string) => {
+    if (s?.snap) {
+      s.atc.request(id, s.snap);
+      tick((n) => n + 1);
+    }
+  };
+  const atcOptions = s?.snap ? s.atc.options(s.snap) : [];
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (
+        (e.target as HTMLElement)?.matches(
+          'input[type=text],input[type=search],input[type=password],input:not([type]),textarea,select',
+        ) ||
+        e.repeat
+      )
+        return;
+      const { room, sim } = live.current;
+      if (e.code === 'Escape') setPanel((p) => (p ? null : 'settings'));
+      if (!room) return;
+      if (e.code === 'KeyC' && !e.ctrlKey) setView((v) => ({ ...v, camera: (v.camera + 1) % 4 }));
+      if (e.code === 'KeyH') setView((v) => ({ ...v, clean: !v.clean }));
+      if (e.code === 'KeyU') setView((v) => ({ ...v, panel: !v.panel }));
+      if (e.code === 'KeyM') setAtcOpen((o) => !o);
+      if (e.code === 'KeyR' && !e.ctrlKey) void recover();
+      if (e.code === 'KeyO' && sim && spec(sim.aircraft).engine !== 'none') {
+        sim.ap.copilot = !sim.ap.copilot;
+        if (sim.ap.copilot) {
+          sim.ap.fd = true;
+        } else sim.ap.master = false;
+        setToast(sim.ap.copilot ? 'AI COPILOT FLYING' : 'AI COPILOT OFF');
+      }
+      if (
+        !live.current.session &&
+        (e.code === 'Equal' ||
+          e.code === 'NumpadAdd' ||
+          e.code === 'Minus' ||
+          e.code === 'NumpadSubtract')
+      )
+        setSettings((st) => {
+          const r =
+            e.code === 'Equal' || e.code === 'NumpadAdd'
+              ? Math.min(16, st.simRate * 2)
+              : Math.max(1, st.simRate / 2);
+          setToast(`SIM RATE ${r}×`);
+          return { ...st, simRate: r };
+        });
+      const d = /^Digit([1-9])$/.exec(e.code);
+      if (d && sim?.snap) {
+        const opt = sim.atc.options(sim.snap)[Number(d[1]) - 1];
+        if (opt) {
+          sim.atc.request(opt.id, sim.snap);
+          tick((n) => n + 1);
+        }
+      }
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [recover]);
+  const leave = () => {
+    setRoom(null);
+    setSession(null);
+    setSim(null);
+    setT(null);
+    setPanel(null);
+    setReport(null);
+    setCrash('');
+    history.replaceState(null, '', '/');
+  };
+  const invite = async () => {
+    if (!room) return;
+    try {
+      await navigator.clipboard.writeText(`${location.origin}/?world=${room.code}&join=1`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      setError(`Share flight code ${room.code}`);
+    }
+  };
+  const bind = (key: 'pitch' | 'roll', value: number) => ({
+    onPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      if (s) s.touch[key] = value;
+    },
+    onPointerUp: () => {
+      if (s) s.touch[key] = 0;
+    },
+    onPointerCancel: () => {
+      if (s) s.touch[key] = 0;
+    },
+  });
+  const set = (fn: (sim: Sim) => void) => {
+    if (s) {
+      fn(s);
+      tick((n) => n + 1);
+    }
+  };
+  const dist = from && to ? geoDistance(from, to) / 1000 : 0,
+    sp = spec(aircraft),
+    range = rangeKm(sp),
+    cruise = cruiseAltitudeFt(sp, dist),
+    blockMin =
+      (dist / ((sp.engine === 'jet' ? 430 : sp.cruiseIas * 1.05) * 1.852)) * 60 +
+      (sp.engine === 'jet' ? 25 : 12);
+  const det = a.flapDetents,
+    flapIdx = plane
+      ? det.reduce(
+          (b, x, k) => (Math.abs(x - plane.flaps) < Math.abs(det[b] - plane.flaps) ? k : b),
+          0,
+        )
+      : 0,
+    targetIdx = i
+      ? det.reduce((b, x, k) => (Math.abs(x - i.flaps) < Math.abs(det[b] - i.flaps) ? k : b), 0)
+      : 0;
+  const MetarLine = ({ wx, label }: { wx: Weather | null; label: string }) => (
+    <p className="metar">
+      <b>{label}</b>
+      {wx
+        ? wx.metar ||
+          `${wx.source} · wind ${Math.round(wx.winds[0].dir)}°/${Math.round(wx.winds[0].speed / 0.5144)} kt · vis ${wx.visibility >= 9999 ? '10+ km' : `${(wx.visibility / 1000).toFixed(1)} km`} · QNH ${Math.round(wx.qnh)}`
+        : 'Loading weather…'}
+    </p>
+  );
+  return (
+    <main
+      className={`world-app ${room ? 'world-flying' : ''} ${view.clean ? 'world-clean' : ''} ${view.camera === 1 ? 'cam-cockpit' : ''}`}
+    >
+      {keysLoaded && (
+        <WorldCanvas
+          googleKey={googleKey || undefined}
+          room={room}
+          sim={sim}
+          view={view}
+          sound={sound}
+          paused={!!panel || !!report}
+          shared={!!session}
+          quality={settings.quality}
+          preview={
+            from
+              ? {
+                  lat: from.lat,
+                  lon: from.lon,
+                  elevation: from.elevation,
+                  heading:
+                    airportEnds(from).find(
+                      (e) => e.ident === (depRw || activeRunway(airportEnds(from), wxDep).ident),
+                    )?.heading ?? 0,
+                }
+              : null
+          }
+          onMove={move}
+          onTelemetry={setT}
+          onEvent={onEvent}
+          onError={setError}
+        />
+      )}
+      <header className="world-header">
+        <button className="flight-brand" onClick={leave}>
+          <span className="sun-mark">日</span>
+          <span>
+            HINODE<small>FLIGHT SIMULATOR</small>
+          </span>
+        </button>
+        <span className="world-badge">
+          {room
+            ? `${room.departure.id} → ${room.arrival.id} · ${a.name.toUpperCase()}`
+            : PHOTOREAL_ONLY
+              ? 'REAL WEATHER · REAL TRAFFIC · PHOTOREAL EUROPE'
+              : 'REAL WEATHER · REAL TRAFFIC · THE WHOLE EARTH'}
+        </span>
+        <nav>
+          <button
+            aria-label={sound ? 'Mute sound' : 'Enable sound'}
+            onClick={() => setSound(!sound)}
+          >
+            {sound ? <Volume2 size={17} /> : <VolumeX size={17} />}
+            <span>{sound ? 'Sound on' : 'Sound off'}</span>
+          </button>
+          <button aria-label="Flight guide" onClick={() => setPanel('guide')}>
+            ?
+          </button>
+          {room && (
+            <>
+              <button aria-label="Settings and pause" onClick={() => setPanel('settings')}>
+                <SlidersHorizontal size={17} />
+              </button>
+              {session && (
+                <button onClick={invite}>
+                  {copied ? <Check size={17} /> : <Users size={17} />}
+                  <span>{copied ? 'Copied' : 'Invite pilot'}</span>
+                </button>
+              )}
+            </>
+          )}
+          <a href="/adventure">Japan expedition ↗</a>
+        </nav>
+      </header>
+      {!room ? (
+        <>
+          <section className="world-hero">
+            <p className="flight-kicker">OPEN SKIES · REAL GEOGRAPHY · LIVE WORLD</p>
+            <h1>
+              Every journey
+              <br />
+              starts on
+              <br />
+              <em>the runway.</em>
+            </h1>
+            {PHOTOREAL_ONLY ? (
+              <p>
+                Cologne, Düsseldorf, the Ruhr and Strasbourg in full photogrammetry 3D. Live METAR
+                weather,
+                <br />
+                live air traffic and ATC with voice, flown in an Airbus A320 with a real flight
+                deck.
+              </p>
+            ) : (
+              <p>
+                Twenty aircraft with a real aerodynamic flight model. Live METAR weather and winds
+                aloft,
+                <br />
+                live air traffic, ATC with voice, autopilot and autoland — anywhere on Earth.
+              </p>
+            )}
+            <div className="world-hero-tags">
+              <span>
+                <Plane size={15} />
+                {PHOTOREAL_ONLY
+                  ? `${PHOTOREAL_AIRPORTS.length} photoreal airports`
+                  : '72,000 airports'}
+              </span>
+              <span>
+                <CloudSun size={15} />
+                Live weather
+              </span>
+              <span>
+                <Radio size={15} />
+                ATC
+              </span>
+              <span>
+                <Users size={15} />
+                Fly together
+              </span>
+            </div>
+          </section>
+          <section className="world-planner sim-planner">
+            <small>FLIGHT PLANNER</small>
+            <div className="flight-tabs">
+              <button
+                className={mode === 'create' ? 'active' : ''}
+                onClick={() => setMode('create')}
+              >
+                Plan a flight
+              </button>
+              <button className={mode === 'join' ? 'active' : ''} onClick={() => setMode('join')}>
+                Join a pilot
+              </button>
+            </div>
+            <label className="world-label">
+              CALL SIGN
+              <input
+                value={name}
+                maxLength={18}
+                placeholder="e.g. JAL123, N172SP or your name"
+                onChange={(e) => setName(e.target.value)}
+              />
+            </label>
+            <div className="fleet">
+              <div className="fleet-tabs">
+                {CATEGORIES.filter((c) => OFFERED.some((id) => AIRCRAFT[id].category === c)).map(
+                  (c) => (
+                    <button
+                      key={c}
+                      className={cat === c ? 'active' : ''}
+                      onClick={() => {
+                        setCat(c);
+                        const first = OFFERED.find((id) => AIRCRAFT[id].category === c);
+                        if (first && AIRCRAFT[aircraft].category !== c) setAircraft(first);
+                      }}
+                    >
+                      {c}
+                      <small>{OFFERED.filter((id) => AIRCRAFT[id].category === c).length}</small>
+                    </button>
+                  ),
+                )}
+              </div>
+              <div className="aircraft-cards">
+                {OFFERED.filter((id) => AIRCRAFT[id].category === cat).map((id) => {
+                  const x = AIRCRAFT[id];
+                  return (
+                    <button
+                      key={id}
+                      className={aircraft === id ? 'active' : ''}
+                      onClick={() => setAircraft(id)}
+                    >
+                      <b>{x.name}</b>
+                      <small>{x.kind}</small>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="fleet-detail">
+                <p>{sp.summary}</p>
+                <div>
+                  <span>
+                    <b>{(sp.mtow / 1000).toFixed(sp.mtow < 10000 ? 2 : 0)}</b> t MTOW
+                  </span>
+                  <span>
+                    <b>{sp.engine === 'none' ? '—' : sp.engines}</b>{' '}
+                    {sp.engine === 'none'
+                      ? 'no engine'
+                      : sp.engine === 'jet'
+                        ? 'turbofans'
+                        : sp.engine === 'turboprop'
+                          ? 'turboprops'
+                          : 'pistons'}
+                  </span>
+                  <span>
+                    <b>
+                      {sp.cruiseMach
+                        ? `M.${Math.round(sp.cruiseMach * 100)}`
+                        : `${sp.cruiseIas} kt`}
+                    </b>{' '}
+                    cruise
+                  </span>
+                  <span>
+                    <b>{sp.range ? `${sp.range.toLocaleString()}` : '—'}</b> km range
+                  </span>
+                  <span>
+                    <b>{sp.fbw ? 'FBW' : 'Manual'}</b> controls
+                  </span>
+                </div>
+              </div>
+            </div>
+            {mode === 'create' ? (
+              <>
+                <div className="planner-row">
+                  <AirportPicker label="DEPARTURE" value={from} onChange={setFrom} />
+                  <AirportPicker label="ARRIVAL" value={to} onChange={setTo} />
+                </div>
+                <div className="planner-row">
+                  <RunwaySelect
+                    label="DEPARTURE RUNWAY"
+                    airport={from}
+                    wx={wxDep}
+                    value={depRw}
+                    onChange={setDepRw}
+                  />
+                  <RunwaySelect
+                    label="ARRIVAL RUNWAY"
+                    airport={to}
+                    wx={wxArr}
+                    value={arrRw}
+                    onChange={setArrRw}
+                  />
+                </div>
+                <MetarLine wx={wxDep} label={from?.id ?? 'DEP'} />
+                <MetarLine wx={wxArr} label={to?.id ?? 'ARR'} />
+                <div className="planner-row three">
+                  <label className="rw-select">
+                    <span>START</span>
+                    <select value={start} onChange={(e) => setStart(e.target.value as StartMode)}>
+                      {START_MODES.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label} — {m.detail}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="rw-select">
+                    <span>WEATHER</span>
+                    <select
+                      value={settings.weather}
+                      onChange={(e) =>
+                        setSettings((st) => ({ ...st, weather: e.target.value as WeatherPreset }))
+                      }
+                    >
+                      {WEATHER_PRESETS.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="rw-select">
+                    <span>TIME</span>
+                    <select
+                      value={settings.time}
+                      onChange={(e) =>
+                        setSettings((st) => ({ ...st, time: e.target.value as Settings['time'] }))
+                      }
+                    >
+                      {TIME_PRESETS.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          {w.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="route-summary">
+                  <span>{dist ? dist.toFixed(0) : '—'} km</span>
+                  <span>Cruise {cruise >= 18000 ? `FL${cruise / 100}` : `${cruise} ft`}</span>
+                  <span>≈ {fmtTime(blockMin * 60)} block</span>
+                </div>
+                {dist > range && (
+                  <p className="range-warn">
+                    This route ({dist.toFixed(0)} km) exceeds the {sp.name}&apos;s range of about{' '}
+                    {range.toFixed(0)} km. Fuel will run out — pick the airliner, a closer
+                    destination, or enable unlimited fuel in settings.
+                  </p>
+                )}
+              </>
+            ) : (
+              <label className="world-label">
+                INVITATION CODE
+                <input
+                  placeholder="Six-character code"
+                  maxLength={6}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.toUpperCase())}
+                />
+              </label>
+            )}
+            <button
+              className="launch-button"
+              disabled={busy || (mode === 'create' && (!from || !to))}
+              onClick={() => void launch()}
+            >
+              {busy
+                ? 'Preparing your flight…'
+                : mode === 'create'
+                  ? 'Create shared flight'
+                  : 'Join this flight'}
+              <ArrowUpRight size={18} />
+            </button>
+            {mode === 'create' && (
+              <button
+                className="world-practice"
+                disabled={busy || !from || !to}
+                onClick={() => void launch(true)}
+              >
+                Fly solo (time acceleration available) →
+              </button>
+            )}
+            {saved && (
+              <button
+                className="resume-flight"
+                onClick={() =>
+                  void api('get', saved)
+                    .then(async (d) => {
+                      store(saved);
+                      apply(d.room);
+                      await begin(d.room);
+                    })
+                    .catch((e) => setError(e.message))
+                }
+              >
+                Resume flight {saved.code}
+              </button>
+            )}
+          </section>
+        </>
+      ) : (
+        <>
+          {s && (
+            <nav className="sim-toolbar" aria-label="Flight panels">
+              <button
+                className={ui.info ? 'on' : ''}
+                onClick={() => setUi((u) => ({ ...u, info: !u.info }))}
+              >
+                Flight
+              </button>
+              <button
+                className={ui.ap || ap?.master ? 'on' : ''}
+                onClick={() => setUi((u) => ({ ...u, ap: !u.ap }))}
+              >
+                Autopilot{ap?.master ? ' ●' : ''}
+              </button>
+              <button className={atcOpen ? 'on' : ''} onClick={() => setAtcOpen((o) => !o)}>
+                ATC{atcOptions.length ? <small>{atcOptions.length}</small> : null}
+              </button>
+              <button
+                className={view.panel ? 'on' : ''}
+                onClick={() => setView((v) => ({ ...v, panel: !v.panel }))}
+              >
+                Instruments
+              </button>
+              <button
+                className={ui.sys ? 'on' : ''}
+                onClick={() => setUi((u) => ({ ...u, sys: !u.sys }))}
+              >
+                Controls
+              </button>
+              <button onClick={() => setView((v) => ({ ...v, camera: (v.camera + 1) % 4 }))}>
+                {['Chase', 'Cockpit', 'Orbit', 'Tower'][view.camera]} view
+              </button>
+            </nav>
+          )}
+          {t && plane && !view.clean && view.camera !== 1 && !view.panel && (
+            <div className="flight-strip">
+              <span>
+                <small>IAS</small>
+                <b>{Math.round((plane.ias ?? 0) / 0.5144)}</b>
+                <i>kt</i>
+              </span>
+              <span>
+                <small>ALT</small>
+                <b>{Math.round(t.altInd / 10) * 10}</b>
+                <i>ft</i>
+              </span>
+              <span>
+                <small>HDG</small>
+                <b>{String(Math.round(plane.heading) % 360).padStart(3, '0')}</b>
+                <i>°</i>
+              </span>
+              <span>
+                <small>V/S</small>
+                <b>{Math.round((plane.vertical * 196.85) / 50) * 50}</b>
+                <i>fpm</i>
+              </span>
+              <span>
+                <small>{jet ? 'N1' : a.engine === 'none' ? '—' : 'PWR'}</small>
+                <b>{a.engine === 'none' ? '—' : Math.round((plane.n1 ?? 0) * 100)}</b>
+                <i>%</i>
+              </span>
+              <span>
+                <small>FLAPS</small>
+                <b>{a.flapLabels[flapIdx]}</b>
+              </span>
+              {a.gearRetract && (
+                <span
+                  className={
+                    (plane.gearPos ?? 1) > 0.99 ? 'ok' : (plane.gearPos ?? 1) > 0.01 ? 'warn' : ''
+                  }
+                >
+                  <small>GEAR</small>
+                  <b>
+                    {(plane.gearPos ?? 1) > 0.99
+                      ? 'DN'
+                      : (plane.gearPos ?? 1) < 0.01
+                        ? 'UP'
+                        : '···'}
+                  </b>
+                </span>
+              )}
+              <span className="phase">
+                <small>
+                  {(t.remaining / 1852).toFixed(0)} NM ·{' '}
+                  {plane.gs && plane.gs > 20 ? fmtTime(t.remaining / plane.gs) : '—'}
+                </small>
+                <b>
+                  {ap?.copilot
+                    ? 'AI COPILOT'
+                    : ap?.master
+                      ? `AP ${shortMode(ap).lat} ${shortMode(ap).vert}`
+                      : plane.phase.split(' · ')[0]}
+                </b>
+              </span>
+            </div>
+          )}
+          {ui.info && (
+            <section className="world-route">
+              <p className="flight-kicker">
+                {session ? `SHARED FLIGHT ${room.code}` : 'SOLO FLIGHT'}
+                {t && t.rate > 1 ? ` · ${t.rate}× SIM RATE` : ''}
+              </p>
+              <h2>
+                {room.departure.iata || room.departure.id} <span>→</span>{' '}
+                {room.arrival.iata || room.arrival.id}
+              </h2>
+              <p>{room.arrival.name}</p>
+              <small>
+                {plane?.phase ?? 'LOADING'}
+                {ap?.copilot ? ' · AI COPILOT' : ''}
+              </small>
+              {t && plane && (
+                <div className="route-stats">
+                  <span>
+                    <b>{(t.remaining / 1852).toFixed(0)}</b> NM to go
+                  </span>
+                  <span>
+                    <b>{plane.gs && plane.gs > 20 ? fmtTime(t.remaining / plane.gs) : '—'}</b> ETE
+                  </span>
+                  <span>
+                    <b>{Math.round((plane.fuel / 100) * a.fuelMax)}</b> kg fuel
+                  </span>
+                  <span>
+                    <b>
+                      {String(Math.round(t.wind.dir)).padStart(3, '0')}°/{Math.round(t.wind.speed)}
+                    </b>{' '}
+                    kt wind
+                  </span>
+                </div>
+              )}
+              {t?.wx && (
+                <small className="wx-source">
+                  {t.wx.source}
+                  {t.wx.station ? ` · ${t.wx.station}` : ''} · QNH {Math.round(t.wx.qnh)} · OAT{' '}
+                  {Math.round(t.oat)}°C{t.traffic ? ` · ${t.traffic} live aircraft nearby` : ''}
+                </small>
+              )}
+              <div className="pilot-progress">
+                {room.names.map(
+                  (n, k) =>
+                    n && (
+                      <span key={k}>
+                        <i />
+                        {n}
+                        {k === room.seat ? ' · you' : ''}
+                      </span>
+                    ),
+                )}
+              </div>
+              {!room.names[1] && session && <small>Invite a companion with code {room.code}</small>}
+            </section>
+          )}
+          {ap && i && ui.ap && (
+            <section className="mcp" aria-label="Autopilot">
+              <button
+                className={ap.master ? 'on' : ''}
+                onClick={() =>
+                  set((x) => {
+                    x.ap.master = !x.ap.master;
+                    x.ap.copilot = false;
+                    if (x.ap.master) {
+                      if (['TO', 'ROLLOUT'].includes(x.ap.lat)) x.ap.lat = 'HDG';
+                      if (['TO', 'PIT', 'FLARE'].includes(x.ap.vert)) x.ap.vert = 'VS';
+                    }
+                  })
+                }
+              >
+                AP <kbd>P</kbd>
+              </button>
+              <button
+                className={ap.fd ? 'on' : ''}
+                onClick={() =>
+                  set((x) => {
+                    x.ap.fd = !x.ap.fd;
+                  })
+                }
+              >
+                FD
+              </button>
+              <button
+                className={ap.athr ? 'on' : ''}
+                onClick={() =>
+                  set((x) => {
+                    x.ap.athr = !x.ap.athr;
+                  })
+                }
+              >
+                {jet ? 'A/THR' : 'A/T'} <kbd>T</kbd>
+              </button>
+              <div className="knob">
+                <small>SPD</small>
+                <button
+                  onClick={() =>
+                    set((x) => {
+                      x.ap.spd = Math.max(40, x.ap.spd - 5);
+                    })
+                  }
+                >
+                  −
+                </button>
+                <b>{ap.spd}</b>
+                <button
+                  onClick={() =>
+                    set((x) => {
+                      x.ap.spd += 5;
+                    })
+                  }
+                >
+                  +
+                </button>
+              </div>
+              <div className="knob">
+                <small>HDG</small>
+                <button
+                  onClick={() =>
+                    set((x) => {
+                      x.ap.hdg = (x.ap.hdg + 355) % 360;
+                    })
+                  }
+                >
+                  −
+                </button>
+                <b>{String(ap.hdg).padStart(3, '0')}</b>
+                <button
+                  onClick={() =>
+                    set((x) => {
+                      x.ap.hdg = (x.ap.hdg + 5) % 360;
+                    })
+                  }
+                >
+                  +
+                </button>
+              </div>
+              <button
+                className={ap.lat === 'HDG' ? 'on' : ''}
+                onClick={() =>
+                  set((x) => {
+                    x.ap.lat = 'HDG';
+                  })
+                }
+              >
+                HDG
+              </button>
+              <button
+                className={ap.lat === 'NAV' ? 'on' : ''}
+                onClick={() =>
+                  set((x) => {
+                    x.ap.lat = 'NAV';
+                  })
+                }
+              >
+                NAV
+              </button>
+              <button
+                className={ap.apr ? 'on' : ''}
+                onClick={() =>
+                  set((x) => {
+                    x.ap.apr = !x.ap.apr;
+                    if (!x.ap.apr && x.ap.i) {
+                      x.ap.i.locCap = false;
+                      x.ap.i.gsCap = false;
+                    }
+                  })
+                }
+              >
+                APR
+              </button>
+              <div className="knob">
+                <small>ALT</small>
+                <button
+                  onClick={() =>
+                    set((x) => {
+                      x.ap.alt = Math.max(0, x.ap.alt - (x.ap.alt >= 10000 ? 1000 : 500));
+                    })
+                  }
+                >
+                  −
+                </button>
+                <b>{ap.alt}</b>
+                <button
+                  onClick={() =>
+                    set((x) => {
+                      x.ap.alt += x.ap.alt >= 10000 ? 1000 : 500;
+                    })
+                  }
+                >
+                  +
+                </button>
+              </div>
+              <button
+                className={ap.vert === 'ALT' || ap.vert === 'ALTS' ? 'on' : ''}
+                onClick={() =>
+                  set((x) => {
+                    x.ap.vert = 'ALT';
+                    x.ap.alt = Math.round((t?.altInd ?? x.ap.alt) / 100) * 100;
+                  })
+                }
+              >
+                ALT
+              </button>
+              <div className="knob">
+                <small>V/S</small>
+                <button
+                  onClick={() =>
+                    set((x) => {
+                      x.ap.vs -= 100;
+                      x.ap.vert = 'VS';
+                    })
+                  }
+                >
+                  −
+                </button>
+                <b>{ap.vs}</b>
+                <button
+                  onClick={() =>
+                    set((x) => {
+                      x.ap.vs += 100;
+                      x.ap.vert = 'VS';
+                    })
+                  }
+                >
+                  +
+                </button>
+              </div>
+              <button
+                className={ap.vert === 'FLC' ? 'on' : ''}
+                onClick={() =>
+                  set((x) => {
+                    x.ap.vert = 'FLC';
+                    x.ap.spd = Math.round(x.ap.spd || Math.round((plane?.ias ?? 0) / 0.5144));
+                  })
+                }
+              >
+                FLC
+              </button>
+              <button
+                disabled={a.engine === 'none'}
+                title={a.engine === 'none' ? 'Sailplanes are flown by hand' : undefined}
+                className={`copilot ${ap.copilot ? 'on' : ''}`}
+                onClick={() =>
+                  set((x) => {
+                    x.ap.copilot = !x.ap.copilot;
+                    if (!x.ap.copilot) x.ap.master = false;
+                    else x.ap.fd = true;
+                  })
+                }
+              >
+                <Bot size={15} />
+                AI copilot <kbd>O</kbd>
+              </button>
+            </section>
+          )}
+          {s &&
+            !atcOpen &&
+            s.atcLines.length > 0 &&
+            Date.now() - s.atcLines[s.atcLines.length - 1].time < 14000 && (
+              <button className="atc-ticker" onClick={() => setAtcOpen(true)}>
+                <Radio size={13} />
+                <b>
+                  {s.atcLines[s.atcLines.length - 1].who === 'pilot'
+                    ? 'YOU'
+                    : s.atcLines[s.atcLines.length - 1].station}
+                </b>
+                <span>{s.atcLines[s.atcLines.length - 1].text}</span>
+                <kbd>M</kbd>
+              </button>
+            )}
+          {s && atcOpen && (
+            <section className="atc-panel">
+              <button className="atc-head" onClick={() => setAtcOpen(!atcOpen)}>
+                <Radio size={15} />
+                <b>{s.atc.station().name}</b>
+                <span>{s.atc.station().f.padEnd(7, '0')}</span>
+                <kbd>M</kbd>
+              </button>
+              {atcOpen && (
+                <>
+                  <div className="atc-log">
+                    {s.atcLines.slice(-7).map((l) => (
+                      <p key={l.id} className={l.who}>
+                        <b>{l.who === 'pilot' ? 'YOU' : l.station}</b>
+                        {l.text}
+                      </p>
+                    ))}
+                    {!s.atcLines.length && (
+                      <p className="info">
+                        Tune in: request your clearance, then call ready for departure. Press a
+                        number key to talk.
+                      </p>
+                    )}
+                  </div>
+                  <ol className="atc-options">
+                    {atcOptions.slice(0, 9).map((o, k) => (
+                      <li key={o.id}>
+                        <button onClick={() => atc(o.id)}>
+                          <kbd>{k + 1}</kbd>
+                          {o.label}
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              )}
+            </section>
+          )}
+          {t && (t.warnings.length > 0 || t.cautions.length > 0) && (
+            <div className={`master ${t.warnings.length ? 'warning' : 'caution'}`}>
+              {t.warnings[0] ?? t.cautions[0]}
+            </div>
+          )}
+          {plane?.ground &&
+            !plane.crashed &&
+            !ap?.copilot &&
+            (t?.elapsed ?? 0) < 90 &&
+            (plane.gs ?? 0) < 30 && (
+              <div className="world-takeoff-tip">
+                {plane.airborne
+                  ? 'Landed. Brakes: hold Space. Reverse thrust: F (airliner).'
+                  : !plane.engine
+                    ? (plane.n1 ?? 0) > 0.02
+                      ? 'Engine starting…'
+                      : 'Press I (or Ctrl+E) to start the engine. Release the parking brake: Ctrl+.'
+                    : i?.parking
+                      ? 'Release the parking brake: Ctrl+. (or the PARK button)'
+                      : `E / Q (or Page Up / Down) set thrust — W/A/S/D only move the controls. Hold E, then at ${vSpeeds(a, aircraftMass(a, plane.fuel)).vr} kt pull ${settings.invertPitch ? 'W' : 'S'} to lift off. Or press O to let the AI copilot fly.`}
+              </div>
+            )}
+          {i && ui.sys && (
+            <div className="world-controlbar sys-bar">
+              <button onClick={() => setPanel('settings')}>
+                <SlidersHorizontal size={15} />
+              </button>
+              <button
+                className={plane?.engine ? 'on' : ''}
+                onClick={() =>
+                  set((x) => {
+                    x.input.engine = !x.input.engine;
+                  })
+                }
+              >
+                {a.engines > 1 ? 'Engines' : 'Engine'}{' '}
+                {plane?.engine ? 'ON' : (plane?.n1 ?? 0) > 0.02 && i.engine ? 'START' : 'OFF'}{' '}
+                <kbd>I</kbd>
+              </button>
+              <label>
+                Thrust
+                <input
+                  aria-label="Throttle"
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={Math.round(i.throttle * 100)}
+                  onChange={(e) =>
+                    set((x) => {
+                      x.input.throttle = Number(e.target.value) / 100;
+                      x.ap.athr = false;
+                    })
+                  }
+                />
+                <span>
+                  {jet
+                    ? `${((plane?.n1 ?? 0) * 100).toFixed(0)}% N1`
+                    : `${Math.round(((plane?.n1 ?? 0) * 2700) / 10) * 10} RPM`}
+                </span>
+              </label>
+              <button
+                onClick={() =>
+                  set((x) => {
+                    x.input.flaps = det[(targetIdx + 1) % det.length];
+                  })
+                }
+              >
+                Flaps {a.flapLabels[flapIdx]}
+                {targetIdx !== flapIdx ? `→${a.flapLabels[targetIdx]}` : ''} <kbd>V</kbd>
+              </button>
+              {a.gearRetract && (
+                <button
+                  className={
+                    (plane?.gearPos ?? 1) > 0.99 ? 'on' : (plane?.gearPos ?? 1) > 0.01 ? 'warn' : ''
+                  }
+                  onClick={() =>
+                    set((x) => {
+                      x.input.gear = !x.input.gear;
+                    })
+                  }
+                >
+                  Gear {i.gear ? 'DN' : 'UP'} <kbd>G</kbd>
+                </button>
+              )}
+              {jet && (
+                <button
+                  className={i.spoilers > 0 ? 'warn' : ''}
+                  onClick={() =>
+                    set((x) => {
+                      x.input.spoilers = x.input.spoilers > 0.75 ? 0 : x.input.spoilers + 0.5;
+                    })
+                  }
+                >
+                  Spoilers {i.spoilers ? `${Math.round(i.spoilers * 100)}%` : 'RET'} <kbd>/</kbd>
+                </button>
+              )}
+              {jet && (
+                <button
+                  className={i.reverse ? 'warn' : ''}
+                  onClick={() =>
+                    set((x) => {
+                      x.input.reverse = !x.input.reverse;
+                    })
+                  }
+                >
+                  Reverse <kbd>F</kbd>
+                </button>
+              )}
+              {jet && (
+                <button
+                  onClick={() =>
+                    set((x) => {
+                      x.input.autobrake = (x.input.autobrake + 1) % 4;
+                    })
+                  }
+                >
+                  Autobrake {['OFF', 'LO', 'MED', 'MAX'][i.autobrake]}
+                </button>
+              )}
+              <button
+                className={i.parking ? 'warn' : ''}
+                onClick={() =>
+                  set((x) => {
+                    x.input.parking = !x.input.parking;
+                  })
+                }
+              >
+                Park brake <kbd>Ctrl .</kbd>
+              </button>
+              <button onClick={() => setView((v) => ({ ...v, camera: (v.camera + 1) % 4 }))}>
+                View {['chase', 'cockpit', 'orbit', 'tower'][view.camera]} <kbd>C</kbd>
+              </button>
+              <button
+                className={view.panel ? 'on' : ''}
+                onClick={() => setView((v) => ({ ...v, panel: !v.panel }))}
+              >
+                <Gauge size={15} /> <kbd>U</kbd>
+              </button>
+              <button aria-label="Recover to departure runway" onClick={() => void recover()}>
+                <RotateCcw size={15} />
+              </button>
+              <button onClick={() => setView((v) => ({ ...v, clean: !v.clean }))}>
+                {view.clean ? 'Show HUD' : 'Hide HUD'} <kbd>H</kbd>
+              </button>
+            </div>
+          )}
+          <div className="world-touch">
+            <button {...bind('roll', -1)}>↶</button>
+            <button {...bind('pitch', 1)}>Nose ↑</button>
+            <button {...bind('pitch', -1)}>Nose ↓</button>
+            <button {...bind('roll', 1)}>↷</button>
+            <button
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture(e.pointerId);
+                if (s) s.touch.brake = true;
+              }}
+              onPointerUp={() => {
+                if (s) s.touch.brake = false;
+              }}
+              onPointerCancel={() => {
+                if (s) s.touch.brake = false;
+              }}
+            >
+              Brake
+            </button>
+          </div>
+        </>
+      )}
+      {toast && <div className="sim-toast">{toast}</div>}
+      {crash && (
+        <div className="flight-overlay">
+          <section
+            className="flight-modal world-modal result"
+            role="alertdialog"
+            aria-label="Crash"
+          >
+            <p className="flight-kicker">FLIGHT ENDED</p>
+            <h2>{crash.toLowerCase().replace(/^./, (c) => c.toUpperCase())}</h2>
+            <p>
+              The aircraft is damaged beyond continued flight. Check sink rate (under 600 fpm), bank
+              (under 8° in the airliner), gear down and the runway centerline.
+            </p>
+            <button className="launch-button" onClick={() => void recover()}>
+              Return to the runway <RotateCcw size={18} />
+            </button>
+            <button className="world-practice" onClick={leave}>
+              New flight plan →
+            </button>
+          </section>
+        </div>
+      )}
+      {report && !crash && room && (
+        <div className="flight-overlay">
+          <section
+            className="flight-modal world-modal result"
+            role="dialog"
+            aria-label="Landing report"
+          >
+            <button className="flight-close" aria-label="Close" onClick={() => setReport(null)}>
+              <X size={21} />
+            </button>
+            <p className="flight-kicker">
+              LANDING REPORT · {room.arrival.id} RWY {s?.plan.arrival.ident}
+            </p>
+            <h2>
+              {report.td.rating === 'BUTTER'
+                ? 'Butter.'
+                : report.td.rating === 'SMOOTH'
+                  ? 'Smooth landing.'
+                  : report.td.rating === 'FIRM'
+                    ? 'Firm, but safe.'
+                    : 'Hard landing.'}
+            </h2>
+            <div className="report-grid">
+              <div>
+                <small>TOUCHDOWN RATE</small>
+                <b>
+                  {report.td.fpm}
+                  <em> fpm</em>
+                </b>
+              </div>
+              <div>
+                <small>LOAD</small>
+                <b>
+                  {report.td.g}
+                  <em> G</em>
+                </b>
+              </div>
+              <div>
+                <small>SPEED</small>
+                <b>
+                  {report.td.speed}
+                  <em> kt</em>
+                </b>
+              </div>
+              <div>
+                <small>FROM THRESHOLD</small>
+                <b>
+                  {report.td.fromThreshold ?? '—'}
+                  <em> m</em>
+                </b>
+              </div>
+              <div>
+                <small>CENTERLINE</small>
+                <b>
+                  {report.td.centerline !== null ? Math.abs(report.td.centerline) : '—'}
+                  <em>
+                    {' '}
+                    m {report.td.centerline !== null ? (report.td.centerline > 0 ? 'R' : 'L') : ''}
+                  </em>
+                </b>
+              </div>
+              <div>
+                <small>BANK / CRAB</small>
+                <b>
+                  {report.td.bank}° / {report.td.crab}°
+                </b>
+              </div>
+              <div>
+                <small>FLIGHT TIME</small>
+                <b>{fmtTime(t?.elapsed ?? 0)}</b>
+              </div>
+              <div>
+                <small>DISTANCE</small>
+                <b>
+                  {((plane?.distance ?? 0) / 1852).toFixed(0)}
+                  <em> NM</em>
+                </b>
+              </div>
+            </div>
+            <button className="launch-button" onClick={leave}>
+              Plan the next flight <Plane size={18} />
+            </button>
+            <button className="world-practice" onClick={() => setReport(null)}>
+              Keep taxiing →
+            </button>
+          </section>
+        </div>
+      )}
+      {panel && (
+        <div className="flight-overlay">
+          <section
+            className="flight-modal world-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={panel === 'settings' ? 'Settings' : 'Flight guide'}
+          >
+            <button
+              className="flight-close"
+              aria-label="Close dialog"
+              onClick={() => setPanel(null)}
+            >
+              <X size={21} />
+            </button>
+            <p className="flight-kicker">
+              {room ? 'PAUSED · ' : ''}
+              {panel === 'guide' ? 'PILOT BRIEFING' : 'SETTINGS & ASSISTS'}
+            </p>
+            <div className="flight-tabs">
+              <button
+                className={panel === 'guide' ? 'active' : ''}
+                onClick={() => setPanel('guide')}
+              >
+                Briefing & controls
+              </button>
+              <button
+                className={panel === 'settings' ? 'active' : ''}
+                onClick={() => setPanel('settings')}
+              >
+                Settings
+              </button>
+            </div>
+            {panel === 'guide' ? (
+              <div className="flight-guide">
+                <article>
+                  <b>1. Before departure</b>
+                  <p>
+                    Keys: W/S pitch (S raises the nose), A/D roll and steer, Z/X rudder,{' '}
+                    <b>E/Q thrust</b>, Space brakes. Open ATC (M) and press 1–9 to talk: listen to
+                    ATIS, request your IFR clearance, then call ready for departure. Cold & dark: I
+                    or Ctrl+E starts the engines (the jet takes ~20 s to spool). Ctrl+. releases the
+                    parking brake.
+                  </p>
+                </article>
+                <article>
+                  <b>2. Take off</b>
+                  <p>
+                    Flaps for takeoff (V), thrust up (E or the slider). Keep the centerline with Z /
+                    X. At the cyan R bug on the speed tape, pull back gently (S / ↓) — about 3°/s in
+                    the airliner. Gear up (G) with a positive climb, flaps up as you accelerate.
+                  </p>
+                </article>
+                <article>
+                  <b>3. Autopilot</b>
+                  <p>
+                    P engages the autopilot. NAV flies the magenta route, HDG the cyan bug, ALT
+                    holds, V/S and FLC climb or descend to the selected altitude; A/THR holds the
+                    SPD bug. APR arms the localizer and glideslope — the airliner and twins
+                    autoland. O hands everything to the AI copilot.
+                  </p>
+                </article>
+                <article>
+                  <b>4. Land</b>
+                  <p>
+                    Follow ATC's descent. Gear down, landing flaps, final approach speed (REF bug).
+                    The PAPI shows two white and two red on a 3° path. Touch down under 600 fpm with
+                    wings level, then brakes (Space), reverse (F) and spoilers deploy automatically
+                    in the airliner.
+                  </p>
+                </article>
+                <article>
+                  <b>5. Views & instruments</b>
+                  <p>
+                    C cycles chase, cockpit, orbit and tower views; drag to look, wheel to zoom. U
+                    toggles the glass panel: PFD, navigation display with live TCAS traffic, and
+                    engine page. B sets the altimeter to local QNH; Shift+B standard.
+                  </p>
+                </article>
+                <article>
+                  <b>6. What is real</b>
+                  <p>
+                    Live METAR weather and winds aloft, real ADS-B traffic, 72,603 airports with
+                    their runways, open satellite and national orthophoto imagery, ISA atmosphere
+                    and a 6-DOF aerodynamic model with published-class performance. Missions,
+                    frequencies and the aircraft liveries are fictional; do not use for real
+                    navigation.
+                  </p>
+                </article>
+              </div>
+            ) : (
+              <div className="aircraft-settings">
+                <label>
+                  <span>
+                    Stability assist
+                    <small>
+                      Holds attitude when you release the stick (light aircraft). The airliner is
+                      always fly-by-wire.
+                    </small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={settings.stability}
+                    onChange={(e) => setSettings((st) => ({ ...st, stability: e.target.checked }))}
+                  />
+                </label>
+                <label>
+                  <span>
+                    Invert pitch keys
+                    <small>
+                      Off: S / ↓ raises the nose (like pulling a yoke). On: W / ↑ raises the nose.
+                    </small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={settings.invertPitch}
+                    onChange={(e) =>
+                      setSettings((st) => ({ ...st, invertPitch: e.target.checked }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>
+                    Auto-rudder<small>Coordinates turns automatically.</small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={settings.autoRudder}
+                    onChange={(e) => setSettings((st) => ({ ...st, autoRudder: e.target.checked }))}
+                  />
+                </label>
+                <label>
+                  <span>Unlimited fuel</span>
+                  <input
+                    type="checkbox"
+                    checked={settings.unlimitedFuel}
+                    onChange={(e) =>
+                      setSettings((st) => ({ ...st, unlimitedFuel: e.target.checked }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>
+                    Live air traffic
+                    <small>
+                      Real aircraft from the adsb.lol ADS-B network, shown in 3D and on the
+                      navigation display.
+                    </small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={settings.traffic}
+                    onChange={(e) => setSettings((st) => ({ ...st, traffic: e.target.checked }))}
+                  />
+                </label>
+                <label>
+                  <span>Weather</span>
+                  <select
+                    value={settings.weather}
+                    onChange={(e) =>
+                      setSettings((st) => ({ ...st, weather: e.target.value as WeatherPreset }))
+                    }
+                  >
+                    {WEATHER_PRESETS.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Time of day</span>
+                  <select
+                    value={settings.time}
+                    onChange={(e) =>
+                      setSettings((st) => ({ ...st, time: e.target.value as Settings['time'] }))
+                    }
+                  >
+                    {TIME_PRESETS.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>
+                    Simulation rate
+                    <small>
+                      {session
+                        ? 'Shared flights always run in real time.'
+                        : 'Speeds up long flights (also + / − keys).'}
+                    </small>
+                  </span>
+                  <select
+                    disabled={!!session}
+                    value={settings.simRate}
+                    onChange={(e) =>
+                      setSettings((st) => ({ ...st, simRate: Number(e.target.value) }))
+                    }
+                  >
+                    {[1, 2, 4, 8, 16].map((r) => (
+                      <option key={r} value={r}>
+                        {r}×
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>
+                    Graphics quality<small>Applies to the next flight.</small>
+                  </span>
+                  <select
+                    value={settings.quality}
+                    onChange={(e) =>
+                      setSettings((st) => ({
+                        ...st,
+                        quality: e.target.value as Settings['quality'],
+                      }))
+                    }
+                  >
+                    <option value="performance">Performance</option>
+                    <option value="balanced">Balanced</option>
+                    <option value="high">High (shadows)</option>
+                  </select>
+                </label>
+                <label>
+                  <span>ATC voices</span>
+                  <input
+                    type="checkbox"
+                    checked={settings.voice}
+                    onChange={(e) => setSettings((st) => ({ ...st, voice: e.target.checked }))}
+                  />
+                </label>
+                <label>
+                  <span>
+                    Cockpit callouts<small>Radio altitude, V1/rotate, GPWS warnings.</small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={settings.callouts}
+                    onChange={(e) => setSettings((st) => ({ ...st, callouts: e.target.checked }))}
+                  />
+                </label>
+                {ap && (
+                  <label>
+                    <span>
+                      Altimeter
+                      <small>
+                        {ap.std ? 'Standard 1013 hPa' : `QNH ${ap.baro} hPa`}
+                        {t?.wx ? ` · local ${Math.round(t.wx.qnh)}` : ''}
+                      </small>
+                    </span>
+                    <button
+                      onClick={() =>
+                        set((x) => {
+                          x.ap.baro = Math.round(x.wx?.qnh ?? 1013);
+                          x.ap.std = false;
+                        })
+                      }
+                    >
+                      Set QNH <kbd>B</kbd>
+                    </button>
+                  </label>
+                )}
+                <p>
+                  Gamepad: left stick flies, right stick looks, triggers set thrust, bumpers rudder,
+                  B brakes. Sound must be switched on (top right) for engines, ATC and callouts.
+                </p>
+              </div>
+            )}
+            <button className="launch-button" onClick={() => setPanel(null)}>
+              {room ? 'Resume flight' : 'Back to the planner'}
+              <Plane size={18} />
+            </button>
+            <a
+              className="world-credits"
+              href="/flight/credits.txt"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Scenery, data, aircraft and software credits
+            </a>
+          </section>
+        </div>
+      )}
+      {!connected && room && <div className="world-notice">Reconnecting to shared flight…</div>}
+      {error && (
+        <div className="world-error" role="alert">
+          {error}
+          <button aria-label="Dismiss error" onClick={() => setError('')}>
+            <X size={16} />
+          </button>
+        </div>
+      )}
+    </main>
+  );
 }
