@@ -1,0 +1,11 @@
+node_modules/
+.next/
+.vercel/
+.data/
+outputs/
+public/
+package-lock.json
+next-env.d.ts
+*.tsbuildinfo
+.env*
+AGENTS.md

@@ -12,7 +12,9 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
-    "test:campaign": "node --import tsx --test tests/campaign.test.ts"
+    "test:campaign": "node --import tsx --test tests/campaign.test.ts",
+    "format": "prettier --write . --ignore-unknown",
+    "format:check": "prettier --check . --ignore-unknown"
   },
   "dependencies": {
     "@mapbox/vector-tile": "^2.0.5",
@@ -22,7 +24,7 @@
     "fast-png": "^8.0.0",
     "lucide-react": "^1.31.0",
     "maplibre-gl": "^6.11.2",
-    "next": "^16.3.8",
+    "next": "16.4.3",
     "pbf": "^4.0.2",
     "proj4": "^2.22.0",
     "react": "19.2.6",
@@ -37,6 +39,7 @@
     "@types/react-dom": "19.2.3",
     "@types/three": "^0.186.0",
     "esbuild": "^0.28.2",
+    "prettier": "3.9.10",
     "tailwindcss": "4.2.1",
     "tsx": "^4.20.6",
     "typescript": "5.9.3"
